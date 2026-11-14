@@ -1,0 +1,43 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GhostUI · Speaker controls</title><style>
+body{margin:0;background:#10191f;color:#e7f4f2;font:16px system-ui;display:grid;min-height:100vh;place-items:center}
+main{width:min(480px,85vw);padding:32px}h1{font-size:38px;margin-bottom:4px}p{color:#a3b9be;line-height:1.5}
+section{margin:24px 0;padding:22px;background:#1b2a32;border-radius:16px}label{display:flex;justify-content:space-between}
+input{width:100%;margin-top:24px;accent-color:#63dcc3}#status{min-height:48px}button{padding:10px 18px;border:0;border-radius:8px}
+small{color:#a3b9be}output{font-variant-numeric:tabular-nums}
+</style><main><small>GHOSTUI / DEVICE CONTROL PROTOTYPE</small><h1 id="name">Connecting…</h1>
+<p id="mode"></p><div id="controls"></div><p id="status" role="status">Loading capabilities…</p>
+<button id="refresh">Refresh state</button><p><small>Send on release. Use Refresh state to read physical knob changes. Start at low playback volume.</small></p></main>
+<script>
+const token='__TOKEN__'; let controls=[], busy=false, editing=false, reading=false, revision=0, lastInteraction=0;
+let requests=Promise.resolve();
+function enqueue(task){const result=requests.then(task);requests=result.catch(()=>{});return result;}
+function interact(){lastInteraction=Date.now();revision++;}
+const widgets=new Map(), status=document.querySelector('#status');
+async function api(path, options={}) {
+ const response=await fetch(path,{cache:'no-store',signal:AbortSignal.timeout(30000),...options});
+ const data=await response.json(); if(!response.ok) throw Error(data.error||'Request failed'); return data;
+}
+function renderState(state){for(const c of controls){const w=widgets.get(c.id);if(!Number.isInteger(state[c.id]))throw Error('Invalid device state');w.input.value=state[c.id];w.out.textContent=state[c.id];}}
+function disable(value){for(const w of widgets.values())w.input.disabled=value;document.querySelector('#refresh').disabled=value;}
+async function refresh(manual=false){
+ if(busy||editing||reading||(!manual&&Date.now()-lastInteraction<8000))return;
+ reading=true;const snapshot=revision;
+ try{const state=await enqueue(()=>api('/state'));
+ // A read started before a drag must never overwrite the user's new value.
+ if(!editing&&!busy&&snapshot===revision){renderState(state);status.textContent='State read from device · '+new Date().toLocaleTimeString();}}
+ catch(e){if(!editing&&!busy&&snapshot===revision)status.textContent='State stale / unavailable: '+e.message;}
+ finally{reading=false;if(!busy)disable(false);}}
+async function send(c,w){if(busy)return; editing=false;interact();busy=true;disable(true);status.textContent='Pending: '+c.label+'…';
+ const value=Number(w.input.value);
+ try{const state=await enqueue(()=>api('/command',{method:'POST',headers:{'Content-Type':'application/json','X-GhostUI-Token':token},body:JSON.stringify({capability:c.id,value})}));renderState(state);status.textContent=state[c.id]===value?'Confirmed: '+c.label+' = '+value:'Device returned a different value; showing readback.';}
+ catch(e){status.textContent='Change unconfirmed; refresh state: '+e.message;}
+ finally{busy=false;lastInteraction=Date.now();disable(false);}}
+async function init(){try{const caps=await api('/capabilities');controls=caps.controls;document.querySelector('#name').textContent=caps.name;document.querySelector('#mode').textContent=caps.simulated?'SIMULATION · no speaker connected':'Live device · '+caps.name;
+ for(const c of controls){if(c.type!=='number')continue;const section=document.createElement('section'),label=document.createElement('label'),out=document.createElement('output'),input=document.createElement('input');
+ label.textContent=c.label;label.htmlFor=c.id;out.textContent='—';label.append(out);input.type='range';input.id=c.id;input.min=c.min;input.max=c.max;input.step=c.step;input.disabled=true;
+ const w={input,out};widgets.set(c.id,w);input.addEventListener('pointerdown',()=>{editing=true;interact();});input.addEventListener('input',()=>{editing=true;interact();out.textContent=input.value;});input.addEventListener('pointerup',()=>{editing=false;lastInteraction=Date.now();});input.addEventListener('change',()=>send(c,w));input.addEventListener('pointercancel',()=>{editing=false;interact();});input.addEventListener('blur',()=>{editing=false;lastInteraction=Date.now();});section.append(label,input);document.querySelector('#controls').append(section);}
+ await refresh(true);}catch(e){status.textContent='Setup failed: '+e.message;}}
+document.querySelector('#refresh').onclick=()=>refresh(true);init();
+</script></html>

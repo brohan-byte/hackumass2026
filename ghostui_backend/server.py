@@ -6,6 +6,7 @@ from pathlib import Path
 from .http_base import make_handler
 from .generation import generate
 from .recognition import RecognitionService, VisionBusy
+from .onboarding.service import OnboardingService
 EXTRA = (Path(__file__).parent / 'web/generation.js').read_text()
 
 def handler_for(worker, port, mobile_token=None):
@@ -13,6 +14,8 @@ def handler_for(worker, port, mobile_token=None):
     base = make_handler(worker, port)
     generation_lock = threading.Lock()
     recognition = RecognitionService(worker.capabilities["deviceId"])
+
+    onboarding = OnboardingService(worker, recognition)
 
     class Handler(base):
         def mobile(self):
@@ -30,6 +33,7 @@ def handler_for(worker, port, mobile_token=None):
                 if not self.mobile(): return
                 if self.path == '/mobile/capabilities':
                     return self.reply({**worker.capabilities, 'simulated': worker.simulated})
+                if self.path == '/mobile/onboarding': return self.reply(onboarding.describe())
                 if self.path == '/mobile/vision': return self.reply(recognition.status())
                 if self.path == '/mobile/state': return self.run_device()
                 return self.reply({'error': 'Not found'}, 404)
@@ -59,6 +63,18 @@ def handler_for(worker, port, mobile_token=None):
                 self.reply({'error': str(exc) or type(exc).__name__}, 503)
 
         def do_POST(self):
+            if self.path == '/mobile/onboarding/verify':
+                if not self.mobile(): return
+                try:
+                    length = int(self.headers.get('Content-Length', '0'))
+                    if not 0 < length <= 1024: raise ValueError('Invalid body size')
+                    body = json.loads(self.rfile.read(length))
+                    if body != {}: raise ValueError('Expected empty JSON object')
+                except (ValueError, TypeError) as exc:
+                    return self.reply({'error': str(exc)}, 400)
+                try: return self.reply(onboarding.verify_connection())
+                except Exception as exc: return self.reply({'error': str(exc)}, 503)
+
             if self.path.startswith('/mobile/vision/'):
                 if not self.mobile(): return
                 try:

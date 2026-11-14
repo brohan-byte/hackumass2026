@@ -1,0 +1,1 @@
+"""GhostUI integrations boundary."""

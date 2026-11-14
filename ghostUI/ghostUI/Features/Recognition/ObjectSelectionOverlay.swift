@@ -4,6 +4,7 @@ import UIKit
 
 struct ObjectSelectionOverlay: View {
     let box: CGRect?
+    var contour: [CGPoint] = []
     let selecting: Bool
     let deviceName: String
     let onRegister: (CGRect) -> Void
@@ -20,7 +21,21 @@ struct ObjectSelectionOverlay: View {
                     }
                 } else if let box {
                     let rect = screenRect(box, geometry.size)
-                    outline(rect, color: .mint).allowsHitTesting(false)
+                    if contour.count >= 3 {
+                        Path { path in
+                            path.move(to:CGPoint(x:contour[0].x*geometry.size.width,y:contour[0].y*geometry.size.height))
+                            for p in contour.dropFirst() { path.addLine(to:CGPoint(x:p.x*geometry.size.width,y:p.y*geometry.size.height)) }
+                            path.closeSubpath()
+                        }
+                        .fill(Color.mint.opacity(0.10))
+                        .overlay {
+                            Path { path in
+                                path.move(to:CGPoint(x:contour[0].x*geometry.size.width,y:contour[0].y*geometry.size.height))
+                                for p in contour.dropFirst() { path.addLine(to:CGPoint(x:p.x*geometry.size.width,y:p.y*geometry.size.height)) }
+                                path.closeSubpath()
+                            }.stroke(.mint,lineWidth:3).shadow(color:.mint,radius:8)
+                        }.allowsHitTesting(false)
+                    } else { outline(rect,color:.mint).allowsHitTesting(false) }
                     Button(action: onSelect) { Color.clear.contentShape(Rectangle()) }
                         .buttonStyle(.plain)
                         .frame(width: max(44, rect.width + 40), height: max(44, rect.height + 40))

@@ -110,4 +110,19 @@ class ArchitectureTests(unittest.TestCase):
         h={'Authorization':'Bearer phone-test-token'}
         self.assertEqual(self.call('/mobile/vision/enroll',{'image':'test'},h)[1],400)
 
+    def test_onboarding_routes_require_pairing_and_verify_without_writes(self):
+        self.assertEqual(self.call('/mobile/onboarding')[1], 401)
+        self.assertEqual(self.call('/mobile/onboarding/verify', {})[1], 401)
+        h = {'Authorization': 'Bearer phone-test-token'}
+        summary, code = self.call('/mobile/onboarding', headers=h)
+        self.assertEqual((code, summary['selectedIntegration']), (200, 'marshall'))
+        with unittest.mock.patch.object(self.worker, 'request', wraps=self.worker.request) as request:
+            verified, code = self.call('/mobile/onboarding/verify', {}, h)
+            request.assert_called_once_with()
+        self.assertEqual(code, 200)
+        self.assertFalse(verified['physicalIdentityConfirmed'])
+        with unittest.mock.patch.object(self.worker, 'request') as request:
+            self.assertEqual(self.call('/mobile/onboarding/verify', {'value': 5}, h)[1], 400)
+            request.assert_not_called()
+
 if __name__=='__main__':unittest.main()

@@ -6,6 +6,7 @@ from .contracts import numeric_limits, validate_command
 
 class DeviceWorker:
     def __init__(self, address=None, simulated=False, device='marshall'):
+        self.integration_id = device
         self.pool = ThreadPoolExecutor(max_workers=1)
         try:
             self.adapter = self.pool.submit(create_adapter, device, address, simulated).result()

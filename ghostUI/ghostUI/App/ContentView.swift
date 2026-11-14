@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var server = "http://Sais-MacBook-Pro-2.local:8780"
     @State private var token = ""
+    @State private var onboarding: OnboardingSummary?
     @State private var capabilities: DeviceCapabilities?
     @State private var values: [String: Double] = [:]
     @State private var status = "Enter the server and pairing token printed by app.py --lan."
@@ -19,6 +20,13 @@ struct ContentView: View {
                     Button("Connect") { Task { await connect() } }
                         .disabled(busy || token.isEmpty)
                 }
+                if let onboarding {
+                    Section("Device integration") {
+                        Text(onboarding.integration.name)
+                        Text("Transport: " + onboarding.integration.transport).font(.caption)
+                        Text("Integration selected on the Mac with --device. Test a control below to confirm the physical device, then open AR.").font(.caption)
+                    }
+                }
                 if let caps = capabilities {
                     deviceControls(caps)
                     #if os(iOS)
@@ -28,13 +36,16 @@ struct ContentView: View {
                     #endif
                 }
                 Section("Connection status") { Text(status).textSelection(.enabled) }
-                Section { Text("Mac and iPhone must share Wi-Fi. Allow Local Network access when prompted. This first version tests connectivity; AR comes next.") }
+                Section { Text("Mac and iPhone must share Wi-Fi. Allow Local Network access when prompted. Connect to the selected integration, verify the device controls, then open AR to enroll or recognize its physical object.") }
             }
             .navigationTitle("GhostUI")
             #if os(iOS)
             .fullScreenCover(isPresented: $showingAR) {
                 if let caps = capabilities {
-                    ARScreen(deviceName: caps.name, recognition: RecognitionClient(server: server, token: token)) {
+                    ARScreen(deviceName:caps.name,recognition:RecognitionClient(server:server,token:token),
+                             gestureControls:caps.controls,values:values,commandBusy:busy,
+                             onGestureChange:{ id,value in Task { await applyGestureChange(id,value:value,caps:caps) } },
+                             deviceStatus:status) {
                         Form {
                             deviceControls(caps)
                             Section("Status") { Text(status) }
@@ -66,34 +77,31 @@ struct ContentView: View {
     }
 
     private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
-        let address = server.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let base = URL(string: address), base.scheme == "http" || base.scheme == "https",
-              base.host != nil, let url = URL(string: address.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path)
-        else { throw URLError(.badURL) }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 35
-        req.setValue("Bearer " + token.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "Authorization")
-        if let body {
-            req.httpMethod = "POST"
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "HTTP \(http.statusCode)"
-            throw NSError(domain: "GhostUI", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        return try JSONDecoder().decode(T.self, from: data)
+        try await GhostAPIClient(server:server,token:token).request(path,body:body)
+    }
+
+    @MainActor private func applyGestureChange(_ id: String, value: Int, caps: DeviceCapabilities) async {
+        guard !busy, let control = caps.controls.first(where: { $0.id == id }) else { return }
+        busy = true; defer { busy = false }
+        do {
+            // Slider release supplies an absolute value bounded by trusted capabilities.
+            let target = Int(max(control.min,min(control.max,Double(value))))
+            status = "Sending gesture \(control.label)…"
+            values = try await request("/mobile/command", body:["capability":id,"value":target])
+            status = "Confirmed \(control.label): \(Int(values[id] ?? Double(target)))"
+        } catch { status = "Gesture not confirmed: " + error.localizedDescription }
     }
 
     @MainActor private func connect() async {
-        busy = true; capabilities = nil; status = "Connecting…"
+        busy = true; capabilities = nil; onboarding = nil; status = "Connecting…"
         defer { busy = false }
         do {
+            let client = OnboardingClient(api:GhostAPIClient(server:server,token:token))
+            let summary = try await client.status()
             let caps: DeviceCapabilities = try await request("/mobile/capabilities")
-            let state: [String: Double] = try await request("/mobile/state")
-            values = state; capabilities = caps; status = "Connected to \(caps.name). State confirmed."
+            let verified = try await client.verifyConnection()
+            values = verified.state; capabilities = caps; onboarding = summary
+            status = "Connected to \(caps.name). State confirmed. Test a control to confirm the physical device."
         } catch { status = error.localizedDescription }
     }
     @MainActor private func refresh() async {

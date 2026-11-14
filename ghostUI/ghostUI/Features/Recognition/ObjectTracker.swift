@@ -7,6 +7,8 @@ import UIKit
 /// Periodic local-Mac YOLOE detections + fast iPhone Vision tracking.
 @MainActor final class ObjectTracker: ObservableObject {
     @Published private(set) var box: CGRect?
+    @Published private(set) var contour: [CGPoint] = []
+    private var contourReferenceBox: CGRect?
     @Published private(set) var message = "Loading local detector status…"
     @Published private(set) var confidence: Float = 0
     @Published private(set) var views = 0
@@ -57,7 +59,7 @@ import UIKit
                 let result = try await client.enroll(jpeg,box:rect)
                 views = result.views
                 enrollmentJPEG = nil
-                message = "Saved view \(views)/4. Add another angle, or tap Start detection."
+                message = "Saved view \(views)/4. Detection resumes automatically. Use Add view for another angle."
                 lastDetect = .distantPast
             } catch {
                 message = "Enrollment failed: " + error.localizedDescription
@@ -66,7 +68,7 @@ import UIKit
         }
     }
     func reset(_ reason: String = "Finding enrolled object again…") {
-        generation = UUID(); box = nil; seed = nil; confidence = 0; lastTrack = 0
+        generation = UUID(); box = nil; seed = nil; contour = []; contourReferenceBox = nil; confidence = 0; lastTrack = 0
         message = reason
     }
     func pause(_ paused: Bool) {
@@ -121,6 +123,11 @@ import UIKit
                     let rect=CGRect(x:b[0],y:b[1],width:b[2],height:b[3])
                     guard rect.width>0.01,rect.height>0.01,rect.minX>=0,rect.minY>=0,rect.maxX<=1.001,rect.maxY<=1.001 else { return }
                     generation=UUID();seed=rect;box=rect;confidence=Float(detected.score)
+                    contour=(detected.polygon ?? []).compactMap { point in
+                        guard point.count==2,point.allSatisfy({ $0.isFinite && $0>=0 && $0<=1 }) else { return nil }
+                        return CGPoint(x:point[0],y:point[1])
+                    }
+                    contourReferenceBox=rect
                     message="YOLOE detected object · tap highlight. Mac inference: \(result.latencyMs) ms."
                 } catch { if generation == id { message = error.localizedDescription } }
             }
@@ -132,7 +139,17 @@ import UIKit
             Task { @MainActor in
                 guard let self else { return };self.trackingBusy=false
                 guard self.generation==id else { return }
-                if let (box,score)=result, score>=0.45 { self.box=box;self.confidence=score }
+                if let (box,score)=result, score>=0.45 {
+                    if let previous=self.contourReferenceBox,previous.width>0,previous.height>0 {
+                        // Between detector masks this is an approximate contour warp,
+                        // not fresh pixel segmentation on every camera frame.
+                        self.contour=self.contour.map { point in CGPoint(
+                            x:box.minX+(point.x-previous.minX)*box.width/previous.width,
+                            y:box.minY+(point.y-previous.minY)*box.height/previous.height) }
+                        self.contourReferenceBox=box
+                    }
+                    self.box=box;self.confidence=score
+                }
                 else { self.reset("Tracking lost. YOLOE will search again; hold steady.") }
             }
         }

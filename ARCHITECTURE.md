@@ -1,75 +1,118 @@
 # GhostUI architecture
 
-## Layout
+GhostUI separates device connectivity from physical-object recognition and UI
+interaction. The onboarding sequence is:
 
-- `app.py`: stable command-line entry point. Existing launch arguments still work.
-- `ghostui_backend/cli.py`: server startup and LAN pairing.
-- `ghostui_backend/contracts.py`: adapter protocol and integer capability validation.
-- `ghostui_backend/registry.py`: adapter factories selected with --device.
-- `ghostui_backend/service.py`: serialized device operations and confirmation.
-- `ghostui_backend/adapters/marshall.py`: extracted legacy BLE transport/discovery.
-- `ghostui_backend/adapters/demo_light.py`: simulated second-device example.
-- `ghostui_backend/http_base.py`: browser routes, session token and validation.
-- `ghostui_backend/server.py`: generation and paired mobile routes.
-- `ghostui_backend/generation.py`: Gemini provider, environment loading and layout validation.
-- `ghostui_backend/web/`: browser page and generation behavior as editable assets.
-- `interface_generation.py`: compatibility re-export for previous imports.
-- `ghostUI/`: existing Xcode project, kept in place to preserve signing and paths.
-- `ghostUI/ghostUI/DeviceModels.swift`: transport capability models.
-- `ghostUI/ghostUI/ContentView.swift`: pairing and capability-driven controls.
-- `ghostUI/ghostUI/ARSceneView.swift`: camera, manual image-region registration and control-panel presentation.
-- `marshall-acton3-ble/`: original diagnostics and standalone prototype, untouched.
-- `tests/`: architecture and API compatibility checks without hardware or AI calls.
+Choose integration → discover/pair → verify control → visually enroll → render UI.
 
-## Add a device
+## Project map
 
-Implement the DeviceAdapter protocol, then register a factory in registry.py.
-Each adapter supplies its own deviceId, name and controls; reads return a map of
-control IDs to values. request((controlId, value)) sets a value and returns state.
-discover() handles optional connection selection. close() releases resources.
-The worker creates and uses adapters on one thread, preserving the BLE event loop.
-Transport-specific discovery and connection fields belong inside the adapter.
-Routes validate commands from the selected manifest; the browser and iPhone
-render the same numeric capabilities. No HTTP or UI branches are needed per model.
+```
+app.py                          Stable launch entry point
+ghostui_backend/
+  integrations/
+    catalog.py                  Supported integration metadata and factories
+    marshall.py                 Working Acton III BLE connection and controls
+    demo_light.py               Explicitly simulated light integration
+  onboarding/service.py         Connection verification and onboarding summary
+  contracts.py                  Capability schema and command validation
+  registry.py                   Existing factory API backed by the catalog
+  service.py                    Serialized commands and readback confirmation
+  recognition.py                YOLOE enrollment, saved views and segmentation
+  generation.py                 Gemini layout generation and validation
+  server.py                     Paired phone routes and generation routes
+  http_base.py                  Browser routes and authentication
+  web/                          Browser UI assets
+  adapters/                     Compatibility imports for previous module paths
+ghostUI/ghostUI/
+  App/                          App entry and main connection/control screen
+  Core/Models/                  Shared capability models
+  Core/Networking/              Paired API transport and recognition client
+  Features/Onboarding/          Typed onboarding client and response models
+  Features/AR/                  Camera lifecycle and AR screen composition
+  Features/Recognition/         Device highlight and on-device region tracking
+  Features/Gestures/            Hand tracking, gesture state machine and sliders
+  Assets.xcassets/               Existing assets
+  NetworkInfo.plist             Existing permissions/configuration
+tests/                          Backend, onboarding and gesture checks
+tools/                          Developer setup utilities
+marshall-acton3-ble/             Standalone diagnostic project; not app code
+```
 
-The current contract supports integer numeric sliders only. Before adding RGB,
-boolean or enumerated controls, extend the contract, validator and both renderers
-together. Do not encode these as arbitrary numbers without documented semantics.
+The Xcode project uses folder-backed source membership. Nested Swift sources are
+included without changing the project identity, signing settings or plist path.
+Root `.env`, `data/vision`, model paths and launch commands stay in place.
 
-## Current scope
+## Integration boundary
 
-One selected device per running server, not a multi-device registry. The adapter
-registry is a registry of implementations, not discovered physical objects.
-Multiple simultaneous devices need instance IDs in routes and a UI device picker.
-The iPhone uses capability-driven controls; Gemini-generated layouts currently
-apply to the browser only. Camera object association is manual and session-scoped; Vision tracks the selected image region.
-ObjectTracker.swift runs Vision on-device; ObjectSelectionOverlay.swift owns selection/highlight input.
-Recognition, segmentation and persistent physical identity remain separate work.
+An integration describes a supported device family/protocol; a device instance
+is one physical unit with a connection identity. `integrations/catalog.py` lists
+only working implementations. WLED, Matter and ESP32 provisioning are future
+integrations, not selectable placeholders.
 
-## Compatibility and security
+Each implementation satisfies `DeviceAdapter`: capabilities, discover, request,
+and close. Discovery and authentication belong inside the integration. The
+single-threaded DeviceWorker owns the adapter's lifecycle, validates writes and
+checks readback without repeatedly writing. UI and recognition contain no
+Marshall-specific command logic.
 
-Default device is marshall. /state, /capabilities, /command, /generate and all
-/mobile endpoints retain their shapes. LAN access stays opt-in with --lan and
-phone bearer tokens still rotate on restart. The local browser uses its existing
-session token and host checks. .env remains at project root, never served to clients.
-No new external dependencies are required; the existing BLE virtualenv still works.
+Capabilities currently support integer numeric sliders only. Extend the schema,
+validation, generated layout and renderers together before adding boolean, RGB,
+or enum controls. Gesture HUD currently displays up to three controls.
 
-## Verify
+## Onboarding boundary
 
-Run `marshall-acton3-ble/.venv/bin/python -m unittest discover -s tests -v`.
-Use `python app.py --simulate` for a speaker simulation, or
-`python app.py --device demo-light` for the always-simulated light.
-Rebuild the existing Xcode project for iPhone checks. Physical BLE and AR behavior
-still require a real-device smoke test after the software checks pass.
+`GET /mobile/onboarding` returns the catalog, selected integration and enrollment
+summary. `POST /mobile/onboarding/verify` with `{}` validates a fresh read of all
+capabilities. Both require the existing paired-phone authentication. Verification
+is read-only and explicitly does not claim physical identity confirmation.
 
-## Local recognition integration
+The iPhone connects to the Mac, loads the selected integration, verifies state,
+and offers controls for a user-confirmed physical test. Opening AR loads saved
+views and starts detection automatically; saving a new view resumes detection.
+Visual enrollment is stored separately from the connection adapter.
 
-`recognition.py` owns YOLOE, reference persistence and the inference lock.
-Authenticated `/mobile/vision` status and `/mobile/vision/{enroll,detect,clear}`
-POST routes stay separate from device commands. The iPhone RecognitionClient
-handles these routes; ObjectTracker combines periodic detections with Vision
-tracking. A failure to detect never dispatches a device command. Configure model
-inference device via GHOSTUI_VISION_DEVICE (CPU default; test MPS explicitly).
-Images persist only during enrollment; live frames are processed in memory.
-No Gemini image recognition is used. Multi-view enrollment and masks require
-separate empirical validation; the present UI draws only detector boxes.
+This is the foundation for an Add device wizard. Selection currently occurs at
+Mac startup with `--device`, not in the phone. There is one active device per
+server. No multi-device switching, persistent onboarding completion, firmware
+flashing or automatic reverse engineering is implemented by this reorganization.
+
+## Recognition and identity
+
+The recognition service persists enrollment images on the Mac under the adapter's
+`deviceId`. YOLOE detects enrolled appearances and returns a box/mask. The phone
+uses Vision tracking between detector responses. A detection never sends a command.
+Existing IDs (`speaker-1`, `demo-light-1`) are preserved to keep saved enrollments.
+They are demo IDs, not unique physical-device identifiers: before supporting two
+speakers or lights, add a device-instance store and namespace enrollment by the
+instance ID. Do not treat a matching appearance as authentication.
+
+## Interaction and generation
+
+The backend generates and validates browser layouts against capabilities. The
+native phone currently renders capability-driven controls, not Gemini layouts.
+Hand tracking runs locally with Apple Vision, up to 20 Hz with cursor smoothing.
+Three centered vertical sliders share rendering and hit-target geometry. Pinch
+captures a thumb; drag previews a bounded value; release sends one absolute
+command. Lost hands cancel. Object detection pauses in the HUD and resumes on Back.
+Touch controls remain available. Camera frames go to the Mac for object detection;
+hand inference stays on the phone and images are not sent to Gemini.
+
+## Extension sequence
+
+1. Add a real WLED integration with explicit endpoint configuration and validated
+   capabilities; reuse the existing onboarding/control/recognition flow.
+2. Add persistent device instances, per-instance routes and a phone integration
+   picker. Bind visual references to instance IDs, not adapter families.
+3. Add ESP32 provisioning as a separate module: known hardware recipe, firmware
+   template, compile, USB flash, network configuration and identity verification.
+4. Add assisted adapter development from documented APIs. Review/test an adapter
+   before adding it to the executable catalog; REA is a developer investigation tool.
+
+## Verification
+
+Run `.venv-vision/bin/python -m unittest discover -s tests -v`.
+Run `python app.py --simulate` or `python app.py --device demo-light` for simulation.
+The existing hardware launch remains `.venv-vision/bin/python app.py --lan`.
+Rebuild in Xcode after the source moves. Software checks do not replace a physical
+BLE/reconnection, recognition and gesture smoke test on the iPhone.

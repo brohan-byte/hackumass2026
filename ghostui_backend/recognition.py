@@ -130,13 +130,22 @@ class RecognitionService:
             detections=[]
             for result in results:
                 if result.boxes is None: continue
-                for coords,score,cls in zip(result.boxes.xyxy.cpu().tolist(),result.boxes.conf.cpu().tolist(),result.boxes.cls.cpu().tolist()):
+                for index,(coords,score,cls) in enumerate(zip(result.boxes.xyxy.cpu().tolist(),result.boxes.conf.cpu().tolist(),result.boxes.cls.cpu().tolist())):
                     if int(cls) not in range(len(self.files())): continue
                     x1,y1,x2,y2=coords
                     x1=max(0,min(1,x1/image.width));x2=max(0,min(1,x2/image.width))
                     y1=max(0,min(1,y1/image.height));y2=max(0,min(1,y2/image.height))
                     if x2>x1 and y2>y1:
-                        detections.append({'box':[x1,y1,x2-x1,y2-y1],'score':float(score)})
+                        polygon=[]
+                        if result.masks is not None and index < len(result.masks.xyn):
+                            import cv2
+                            import numpy as np
+                            points=result.masks.xyn[index].astype(np.float32)
+                            points=cv2.approxPolyDP(points.reshape(-1,1,2),0.003,True).reshape(-1,2)
+                            if len(points)>128:
+                                points=points[::math.ceil(len(points)/128)]
+                            polygon=[[float(max(0,min(1,x))),float(max(0,min(1,y)))] for x,y in points]
+                        detections.append({'box':[x1,y1,x2-x1,y2-y1],'score':float(score),'polygon':polygon})
             return {'detections':sorted(detections,key=lambda d:d['score'],reverse=True)[:4],
                     'views':len(self.files()),'latencyMs':round((time.perf_counter()-started)*1000)}
         finally:self.lock.release()

@@ -59,18 +59,25 @@ ghostui_backend/
   contracts.py                 adapter contract and capability validation
   registry.py                  adapter factories
   service.py                   serial commands and readback confirmation
-  adapters/                    Marshall BLE and demo light
+  integrations/                catalog, Marshall BLE and simulated light
+  onboarding/                  connection verification and enrollment summary
+  adapters/                    compatibility imports
   generation.py                Gemini generation and validation
   http_base.py, server.py      browser and iPhone routes
   web/                         browser HTML and generation JavaScript
 ghostUI/                       existing Xcode project
+  ghostUI/App/                 app shell and connection/control screen
+  ghostUI/Core/                models and shared paired API transport
+  ghostUI/Features/             onboarding, AR, recognition and gestures
 marshall-acton3-ble/            original standalone driver/diagnostics
 tests/                         compatibility and architecture checks
 ```
 
 The main app no longer imports the standalone Marshall demo. That folder remains
 unchanged and supplies the existing virtualenv used in these run commands.
-New devices implement the adapter contract and register a factory. Current
+New device families implement the adapter contract in `integrations/` and add a
+catalog entry in `integrations/catalog.py`. The iPhone loads onboarding metadata
+and verifies readable state; the user still confirms which physical device responds. Current
 renderers support integer numeric sliders; other control types require shared
 contract and renderer changes. One selected device runs per server instance.
 
@@ -91,7 +98,7 @@ address/token, then choose **Open camera · Select object**.
    A yellow preview remains. Tap **Save view** to submit it; drawing alone does not enroll.
 2. Wait for “Saved view 1/4.” Move to the left side and draw another box.
 3. Add right-side and different-distance views, up to four total.
-4. Tap **Start detection**. The initial model warm-up can take tens of seconds;
+4. Detection starts automatically after saving a view. The initial model warm-up can take tens of seconds;
    later calls reuse the model and visual prompts.
 5. Hold reasonably steady during detection. A matching box becomes highlighted;
    tap it to open controls. iPhone Vision tracks between periodic Mac detections.
@@ -103,7 +110,7 @@ other cloud inference service. Boxed reference images/metadata persist under
 `data/vision/`, separated by device ID. Live detection frames are not written to
 disk. `data/`, `models/`, and `.venv-vision/` are ignored by Git. Closing/reopening
 the camera preserves Mac enrollment; reconnecting after server restart still
-requires the new pairing token. Press Start detection to use saved views.
+requires the new pairing token. Opening AR automatically starts detection with saved views.
 
 YOLOE's visual-prompt mode uses a mosaic of up to four object-centered crops with a separate visual
 prompt ID for each view; all IDs map to the selected device. This conditions an existing detector; it does not train a new model.
@@ -141,3 +148,39 @@ in that run. These are smoke-test timings, not benchmark guarantees or measured
 speaker recognition accuracy. The iPhone code type-checks against the iOS SDK.
 Real speaker accuracy, camera alignment, end-to-end latency and usability still
 need on-device testing.
+
+## Segmentation and gesture controls
+
+YOLOE returns simplified mask polygons for a mint speaker silhouette, with a box
+fallback. Between detections the phone transforms the polygon with its local
+bounding-box tracker; this approximates the silhouette between model results.
+
+Rebuild and run the iPhone app, keeping the paired Mac backend running:
+
+1. Open AR. Detection starts automatically when saved speaker views and the detector are available.
+   For a new device, save an enrollment view; detection starts automatically. Use Add view for additional angles.
+2. Show one hand to the rear camera. The index fingertip controls the cursor.
+3. Point the cursor inside the highlighted speaker, pinch thumb/index for at
+   least 0.25 seconds, then release to open the gesture HUD.
+4. Point at a Volume, Bass, or Treble slider thumb and pinch to grab it.
+5. Drag up/down while pinching; the thumb and value preview follow the drag.
+   Release to apply the absolute value. Up increases; down decreases.
+6. Pinch/release over Back to resume speaker search, or Close to leave AR.
+   Use touch sliders remains available as a fallback.
+
+Open your hand before each gesture. Cyan dots show hand landmarks; the cursor
+highlights a target and turns green after a sufficiently long pinch. Grabbing
+a thumb does not send a device command. Previews remain local until release;
+the app sends an absolute value clamped to the device capability range.
+Only one command can run at a time, with confirmation/error feedback in the HUD.
+
+Object detection pauses while the HUD is open, so the speaker need not stay in
+view and a hand covering it does not disrupt selection. Returning to search
+requires a fresh detection. Lost, uncertain, or multiple hands cancel a pending
+gesture. Orientation changes, backgrounding, and leaving AR cancel it too.
+Apple Vision performs hand tracking locally; no MediaPipe download is required.
+
+The gesture state-machine tests cover arming, release debounce, short-pinch
+rejection, hand-loss cancellation, timeout, target capture, and vertical slider range clamping.
+Hand sampling is capped at 20 Hz with cursor smoothing and pinch hysteresis.
+Actual camera visibility and gesture comfort still require testing on the phone.

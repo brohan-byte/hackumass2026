@@ -3,6 +3,11 @@
 A capability-driven device-control prototype with a Gemini-generated browser
 layout and an iPhone app for manual AR placement and controls.
 
+## New contributors
+
+Read [the project onboarding guide](docs/ONBOARDING.md) for current progress,
+the planned device setup experience, code ownership, and the next milestones.
+
 ## Run the existing Marshall experience
 
 From this folder:

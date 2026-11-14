@@ -53,3 +53,4 @@ running other speaker-control servers at the same time.
 Actual speaker writes are already exercised by the earlier prototype; this
 main application's Bluetooth thread still needs a hardware smoke test.
 # hackumass2026
+# hackumass2026

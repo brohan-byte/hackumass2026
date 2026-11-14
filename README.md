@@ -55,3 +55,4 @@ main application's Bluetooth thread still needs a hardware smoke test.
 # hackumass2026
 # hackumass2026
 # hackumass2026
+# hackumass2026

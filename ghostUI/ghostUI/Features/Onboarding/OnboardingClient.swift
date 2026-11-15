@@ -1,12 +1,5 @@
 import Foundation
 
-struct IntegrationDescription: Decodable, Identifiable {
-    let id: String
-    let name: String
-    let transport: String
-    let setup: String
-    let simulationOnly: Bool
-}
 struct OnboardingSummary: Decodable {
     let integration: IntegrationDescription
     let selectedIntegration: String

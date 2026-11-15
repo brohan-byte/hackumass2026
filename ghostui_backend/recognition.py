@@ -85,7 +85,9 @@ class RecognitionService:
         # the same registered device; averaging views can dilute useful features.
         # These are visual prompts, not a newly trained device-specific model.
         tile=320
-        mosaic=Image.new('RGB',(tile*2,tile*2),(100,100,100));boxes=[]
+        columns=max(2,math.ceil(math.sqrt(len(files))))
+        rows=max(2,math.ceil(len(files)/columns))
+        mosaic=Image.new('RGB',(tile*columns,tile*rows),(100,100,100));boxes=[]
         for i,path in enumerate(files):
             image=Image.open(path.with_suffix('.jpg')).convert('RGB')
             x,y,w,h=json.loads(path.read_text())['box']
@@ -99,12 +101,15 @@ class RecognitionService:
             crop=image.crop((leftCrop,topCrop,rightCrop,bottomCrop))
             scale=min((tile-16)/crop.width,(tile-16)/crop.height)
             width,height=round(crop.width*scale),round(crop.height*scale)
-            left=(i%2)*tile+(tile-width)//2;top=(i//2)*tile+(tile-height)//2
+            left=(i%columns)*tile+(tile-width)//2;top=(i//columns)*tile+(tile-height)//2
             mosaic.paste(crop.resize((width,height)),(left,top))
             sx,sy=width/crop.width,height/crop.height
             boxes.append([left+(px-leftCrop)*sx,top+(py-topCrop)*sy,
                           left+(px+pw-leftCrop)*sx,top+(py+ph-topCrop)*sy])
         return mosaic, {'bboxes':np.array(boxes,dtype=np.float32),'cls':np.arange(len(boxes),dtype=np.int32)}
+
+    def identity_for_class(self, index):
+        return {}
 
     def detect(self, encoded):
         if not self.lock.acquire(False): raise VisionBusy('Vision is busy; dropping this frame')
@@ -117,7 +122,8 @@ class RecognitionService:
             if self.model is None:
                 from ultralytics import YOLOE
                 self.model=YOLOE(str(self.model_path))
-            options={'conf':0.35,'imgsz':640,'verbose':False,'device':os.environ.get('GHOSTUI_VISION_DEVICE','cpu')}
+            options={'conf':0.35,'imgsz':640,'verbose':False,'agnostic_nms':False,
+                     'device':os.environ.get('GHOSTUI_VISION_DEVICE','cpu')}
             if not self.prompted:
                 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
                 reference,prompts=self.reference()
@@ -145,7 +151,8 @@ class RecognitionService:
                             if len(points)>128:
                                 points=points[::math.ceil(len(points)/128)]
                             polygon=[[float(max(0,min(1,x))),float(max(0,min(1,y)))] for x,y in points]
-                        detections.append({'box':[x1,y1,x2-x1,y2-y1],'score':float(score),'polygon':polygon})
-            return {'detections':sorted(detections,key=lambda d:d['score'],reverse=True)[:4],
+                        detections.append({'box':[x1,y1,x2-x1,y2-y1],'score':float(score),'polygon':polygon,
+                                           **self.identity_for_class(int(cls))})
+            return {'detections':sorted(detections,key=lambda d:d['score'],reverse=True)[:32],
                     'views':len(self.files()),'latencyMs':round((time.perf_counter()-started)*1000)}
         finally:self.lock.release()

@@ -19,6 +19,7 @@ class JsonLevelAdapter:
                 self.origin.query or self.origin.fragment or self.origin.path not in ('', '/')):
             raise ValueError('Expected a controller hostname or HTTP(S) origin')
         info = self._call(self.binding['info_path'])
+        self.identity_info = info
         if info.get(self.binding['match_field']) != self.binding['match_value']:
             raise ValueError('Controller identity does not match the adapter')
         instance = info.get(self.binding['identity_field'])

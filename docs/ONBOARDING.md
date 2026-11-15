@@ -1,6 +1,44 @@
 # GhostUI project onboarding
 
-Contributor guide • 14 November 2026
+Contributor guide • updated 15 November 2026
+
+## Current update: camera-first experience
+
+WLED can now be added directly from the phone: **Register object → Find new
+device → light name** (an empty registry searches automatically). The Mac
+discovers WLED over mDNS, identifies the unit, selects its official API reference,
+calls Gemini for a mapping, verifies identity/state and generates the AR layout.
+The phone then opens the existing slider confirmation and boxed-view enrollment.
+Device-specific terminal commands and IP/documentation entry are no longer
+required for this WLED flow. See the README for a fresh-profile demo command.
+Firmware installation and joining Wi-Fi are still prerequisites. The Mac remains
+the hackathon bridge. Broader device discovery/API identification is future work.
+
+The phone opens directly to the camera. A settings icon holds the temporary Mac
+address/pairing code. **Register object** shows real device names only, asks the
+user to test a control and confirm the physical target, then opens boxed-view
+registration. Saved devices, addresses, protocol choices and simulation live on
+the backend. There is no phone saved-device manager or integration picker.
+
+The backend now searches all enrolled real objects using one YOLOE visual prompt
+bank. Detections carry a device ID and name; the phone tracks and outlines each
+match independently. Tapping or pinching an outline automatically opens that
+object's controls. One control connection remains active internally, with automatic
+switching on object selection. This is separate from recognizing several objects
+in one camera image. Physical multi-object accuracy/latency still needs validation.
+
+Configure direct test connections on the Mac with the existing `--device` launches
+(one server process at a time); records accumulate in `data/devices.json`. Start
+future sessions with `.venv-vision/bin/python app.py --lan`. A configured Home
+Assistant server supplies additional friendly device names during registration;
+Home Assistant itself is never presented as a device type. Its REST adapter is
+not a bundled Home Assistant server. Simulation is a developer-only fake device
+state and is hidden from the real-device camera flow.
+
+See [README.md](../README.md) for the current test flow and
+[ARCHITECTURE.md](../ARCHITECTURE.md) for APIs. The remainder below records the
+earlier roadmap; startup-only selection and phone device-picker descriptions are
+historical and superseded by this update.
 
 GhostUI turns a supported physical device into an interactive camera interface.
 The user looks at a registered object, sees a highlight, opens its controls, and
@@ -10,8 +48,8 @@ objective is to verify it with an ESP32 and NeoPixel ring. See the README for ge
 
 This guide explains the current implementation, the intended user experience,
 and the engineering work required to connect them. **Firmware provisioning,
-automatic network discovery for lights, and a phone Add device wizard are planned,
-not implemented.**
+discovery beyond WLED, and a general Add device wizard are planned,
+not implemented.** WLED discovery/setup is implemented as described above.
 
 ## Where the project stands
 

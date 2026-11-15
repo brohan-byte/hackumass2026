@@ -1,19 +1,167 @@
 # GhostUI
 
-A capability-driven device-control prototype with a Gemini-generated browser
-layout and an iPhone app for manual AR placement and controls.
+A capability-driven device-control prototype with Gemini-generated native AR
+controls, visual enrollment, hand gestures and saved device connections.
 
 ## New contributors
 
 Read [the project onboarding guide](docs/ONBOARDING.md) for current progress,
 the planned device setup experience, code ownership, and the next milestones.
 
+## Add a WLED light from the phone
+
+The Mac backend still runs for the hackathon, but adding a WLED light no longer
+requires a device address, documentation URL or generation command. Rebuild the
+iPhone app for the new flow. For a fresh registration demo, start the server with:
+
+```sh
+.venv-vision/bin/python app.py --data-dir data/phone-setup-demo --port 8783 --lan
+```
+
+Connect the phone using the printed URL/token, then tap **Register object**.
+An empty registry searches automatically; otherwise tap **Find new device**.
+Select the discovered light by name (a default controller may be named **WLED**).
+The app shows setup progress, generates and verifies the connection, creates the
+Gemini AR controls, and opens the test slider. Confirm the light, save boxed
+views, then return to detection and pinch controls. Reuse the same command/data
+directory on later starts; saved connections and layouts are reused.
+
+Discovery uses WLED's `_wled._tcp.local.` mDNS advertisement and a read-only
+`/json/info` identity check. The detected WLED family selects the official API
+documentation URL, then calls the same Gemini mapping pipeline as `--onboard`.
+No prebuilt WLED adapter is substituted if generation fails. Existing saved WLED
+connections can be reused. The phone receives candidate IDs/names only, without
+addresses or protocol settings. Setup checks the unit identity again before
+saving, and does not change brightness until the user tests a control.
+
+WLED must already have firmware and Wi-Fi configured. The Mac needs internet for
+new Gemini calls, and the network must allow local device traffic and mDNS.
+Discovery currently supports WLED; arbitrary device/API search and Wi-Fi
+provisioning are not implemented. If no light appears, check the shared Wi-Fi
+and retry. Do not reflash an already working light for this flow.
+
+## Documentation-driven adapter onboarding (developer CLI)
+
+The backend can fetch a supplied HTTPS API documentation page, ask Gemini for a
+bounded JSON mapping, verify live identity/state and save the connection. Each
+saved record contains the mapping, source URL, documentation/mapping SHA-256 and
+Gemini model. It uses the fixed `DocumentedHttpAdapter` transport at runtime,
+without importing generated Python or editing a catalog for each new binding.
+
+For the working light, replace the address if it changes:
+
+```sh
+.venv-vision/bin/python app.py --onboard 10.0.0.152 \
+  --api-docs https://kno.wled.ge/interfaces/json-api/ \
+  --name "Ring light" --data-dir data/onboarding-demo --port 8781 --lan
+```
+
+This isolated registry leaves the existing Marshall/WLED demo on port 8780 intact.
+In the phone's connection settings, enter the Mac's printed address with port
+8781 and its new pairing token. Tap **Register object → Ring light**, test the
+brightness slider, confirm the device and save views. Gemini generates/caches the
+AR layout from the newly created adapter capabilities through the existing flow.
+
+After successful generation, restart without fetching documentation or calling
+Gemini for the adapter again:
+
+```sh
+.venv-vision/bin/python app.py --data-dir data/onboarding-demo --port 8781 --lan
+```
+
+`--onboard` explicitly requests generation; it does not silently select the bundled
+WLED adapter on failure. Bad/unsupported mappings or failed device verification
+stop onboarding and preserve existing records. Startup checks the port before
+spending an API call. Onboarding itself reads only: the phone's test slider verifies
+a write and physical association. Use a new `--data-dir` for a completely fresh
+registration demo; keep the original data as a fallback.
+
+Current scope is one integer percentage control on flat, unauthenticated HTTP(S)
+JSON endpoints. The API must document a unique unit identifier, name, matching
+vendor field, readable state and a JSON POST control. This automates the path from
+a supplied documentation URL; online API search, arbitrary BLE protocol inference,
+authentication generation and universal device compatibility are not implemented.
+The legacy `adaptergen --docs ... --output ...` developer tool remains available.
+
+## Camera experience (current version)
+
+For the Sony XM5 deadline demo, see [Mac playback setup](docs/SONY_XM5.md).
+It uses the same registration/Gemini AR/gesture flow, with an explicitly labeled
+Mac playback volume control. Private Sony settings remain experimental.
+
+The phone opens a camera with **Register object** and a small connection-settings
+button. During registration it shows real device names only. The user chooses
+which physical device to link, tests a control to confirm it, and draws boxed
+views from up to four angles. Returning to the camera searches all enrolled real
+objects together. Tap or pinch an outline to open that object's generated controls.
+
+The phone has no integration picker, simulation switch, saved-device manager,
+IP field, or Home Assistant device type. Device records, addresses and adapter
+selection stay on the Mac. Connection settings temporarily retain the Mac server
+address/pairing code required by the hackathon bridge.
+
+The camera keeps a recent object target briefly through tracking loss. When a
+hand appears or a touch begins, it freezes the known target for up to three
+seconds so covering a small light does not remove its controls button. Moving the
+camera significantly invalidates that retained position. The outline and its
+label both open controls; object detection stays paused while the controls are open.
+
+### Configure test devices on the Mac
+
+Stop the current server with Ctrl-C before launching another on the same port.
+First configure the original Marshall to preserve its legacy enrollment:
+
+```sh
+.venv-vision/bin/python app.py --device marshall --lan
+```
+
+After it connects, stop it and configure WLED using the controller's current IP:
+
+```sh
+.venv-vision/bin/python app.py --device wled 192.168.1.42 --name "Ring light" --lan
+```
+
+Both connections remain in ignored `data/devices.json`. Future starts can use:
+
+```sh
+.venv-vision/bin/python app.py --lan
+```
+
+Rebuild the iPhone app, connect through the settings button using the newly
+printed URL/token, tap **Register object**, and choose the physical device by
+name. Test the slider, tap **That's my device · Continue**, save views, then tap
+**Done**. Repeat for the other device. Both objects can then be highlighted in
+the same camera session; tap/pinch the desired outline for its controls. The first
+combined-model inference may need time to warm up. Test recognition on real
+objects under demo conditions before presenting.
+
+Stored layouts and views survive restarts. The first real Marshall registration
+claims the legacy speaker views; verify it is the original speaker. WLED legacy
+views are matched by reported identity. Simulated connections are developer-only
+and are excluded from the phone's registration list and camera recognition.
+
+### Home Assistant's role
+
+Home Assistant is an optional central hub. When a real Home Assistant server is
+configured with `HOMEASSISTANT_URL` and `HOMEASSISTANT_TOKEN` in Mac `.env`, its
+supported lights, speakers and fans appear by friendly name during registration.
+The backend translates their controls through Home Assistant. A user chooses
+“Desk lamp,” never “Home Assistant.” Installing/running a real Home Assistant
+server is separate from the included REST adapter and local fixture server.
+
+Direct Marshall BLE and WLED HTTP paths remain available for the existing demo.
+They use the same internal capability contract. WLED Wi-Fi discovery and
+phone-driven mapping generation are available; broader protocol discovery and
+arbitrary adapter generation remain later work. The Mac currently keeps one
+control connection open and switches it automatically when an object is chosen;
+shared visual recognition searches all registered real objects independently.
+
 ## Run the existing Marshall experience
 
 From this folder:
 
 ```sh
-marshall-acton3-ble/.venv/bin/python app.py --lan
+.venv-vision/bin/python app.py --device marshall --lan
 ```
 
 Close other speaker-control scripts and the Marshall app first. Without an
@@ -55,7 +203,7 @@ Once the ring is reachable, substitute its address and run:
 .venv-vision/bin/python app.py --device wled 192.168.1.42 --lan
 ```
 
-Connect the iPhone with the printed URL and token. Set brightness to 40% and
+Connect the iPhone with the printed URL and token. Tap Register object, choose the light, set brightness to 40% and
 check that the ring responds and the app confirms 40. Zero turns the ring off.
 The generated adapter identifies the controller by its reported MAC address.
 
@@ -67,8 +215,9 @@ marshall-acton3-ble/.venv/bin/python app.py --device demo-light --lan
 marshall-acton3-ble/.venv/bin/python -m unittest discover -s tests -v
 ```
 
-`demo-light` is always simulated. It exposes brightness and warmth to the same
-routes/renderers used for Marshall; it does not connect to an ESP32 or real light.
+`demo-light` is always simulated. It exposes brightness and warmth to the developer
+browser/API and does not connect to an ESP32 or real light. The phone hides these
+simulations from its real-device registration and recognition experience.
 
 ## Gemini
 
@@ -99,6 +248,8 @@ ghostui_backend/
   cli.py                       startup and LAN pairing
   contracts.py                 adapter contract and capability validation
   registry.py                  adapter factories
+  devices.py                   persistent device instances and runtime selection
+  scene.py                     all-object recognition and identity disambiguation
   service.py                   serial commands and readback confirmation
   integrations/                catalog, Marshall BLE and simulated light
   onboarding/                  connection verification and enrollment summary
@@ -120,7 +271,7 @@ New device families implement the adapter contract in `integrations/` and add a
 catalog entry in `integrations/catalog.py`. The iPhone loads onboarding metadata
 and verifies readable state; the user still confirms which physical device responds. Current
 renderers support integer numeric sliders; other control types require shared
-contract and renderer changes. One selected device runs per server instance.
+contract and renderer changes. One control session is open at a time; camera recognition searches all enrolled real devices.
 
 ## YOLOE enrollment and detection
 
@@ -162,7 +313,7 @@ are rejected if the phone moved significantly or the result is over twelve
 seconds old. Ambiguous multiple detections hide the active highlight rather than
 choosing a random object. Controls do not open or execute actions automatically.
 
-This version uses bounding-box highlights, not silhouette masks. The model can
+This version uses silhouette masks when available, with bounding-box fallback. The model can
 confuse similar objects, miss unseen angles, or drift during local tracking.
 Recognition does not authenticate physical BLE identity. Test enrollment on the
 actual speaker before relying on it. Camera orientation, camera image cropping,
@@ -184,7 +335,8 @@ setup. The Gemini layout generator remains independent of recognition.
 
 ## Verification
 
-20 unit/compatibility tests pass. Real visual-prompt inference and prompt reuse
+Backend checks include registry persistence, selection isolation, enrollment migration,
+Home Assistant, layout validation and existing control/recognition routes. Real visual-prompt inference and prompt reuse
 were exercised using a synthetic test image: roughly 17 s cold and 365 ms warm
 in that run. These are smoke-test timings, not benchmark guarantees or measured
 speaker recognition accuracy. The iPhone code type-checks against the iOS SDK.

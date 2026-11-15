@@ -16,8 +16,13 @@ SCHEMA = {'type': 'object', 'properties': {
 
 INSTRUCTIONS = """Extract a GhostUI adapter binding from the supplied API documentation.
 The fixed DeviceAdapter runtime exposes ONE integer percentage slider, min 0 max 100 step 1.
+Choose a documented brightness/dimming control when available; use control_id brightness
+for brightness. Ignore unrelated features. Nested objects elsewhere in the API do not
+make it unsupported if the selected control and identity have flat endpoints.
 It GETs an identity object, compares match_field with match_value, reads identity_field
-and name_field as strings, GETs a flat JSON state object, POSTs flat JSON commands,
+and name_field as strings. identity_field must be a documented persistent unique
+unit identifier such as MAC, serial or UUID; a model/firmware version is insufficient.
+It GETs a flat JSON state object, POSTs flat JSON commands,
 then reads state again. Fill info_path, state_path and command_path with relative
 absolute paths on the same host. value_field is the integer level property for both
 reading and writing, with linear wire range 0..wire_max. A documented power_field
@@ -54,6 +59,22 @@ def validate(binding):
         raise ValueError('Wire range must represent all 101 slider positions')
 
 
+def extract_binding(docs):
+    """Generate and validate data for the fixed HTTP runtime. No code executes."""
+    if not isinstance(docs, str) or not 0 < len(docs.strip()) <= 64000:
+        raise ValueError('Provide 1–64000 characters of relevant API documentation')
+    load_environment()
+    key = os.environ.get('GEMINI_API_KEY', '').strip()
+    if not key:
+        raise ValueError('Set GEMINI_API_KEY before generating an adapter')
+    try:
+        binding = gemini_json(INSTRUCTIONS + '\n\n' + docs, SCHEMA, key)
+    except Exception as exc:
+        raise ValueError(f'Gemini extraction failed ({type(exc).__name__}); no adapter was installed') from None
+    validate(binding)
+    return binding
+
+
 def render(binding):
     validate(binding)
     literal = "{\n" + "".join(f"        {k!r}: {binding[k]!r},\n" for k in sorted(binding)) + "    }"
@@ -75,16 +96,7 @@ def main(argv=None):
             raise ValueError('Output exists; choose a new file to compare before replacing it')
         if args.docs:
             docs = args.docs.read_text(encoding='utf-8')
-            if not 0 < len(docs.strip()) <= 64000:
-                raise ValueError('Provide 1–64000 characters of relevant API documentation')
-            load_environment()
-            key = os.environ.get('GEMINI_API_KEY', '').strip()
-            if not key:
-                raise ValueError('Set GEMINI_API_KEY or use --binding for offline generation')
-            try:
-                binding = gemini_json(INSTRUCTIONS + '\n\n' + docs, SCHEMA, key)
-            except Exception as exc:
-                raise ValueError(f'Gemini extraction failed ({type(exc).__name__})') from None
+            binding = extract_binding(docs)
         else:
             binding = json.loads(args.binding.read_text(encoding='utf-8'))
         code = render(binding)

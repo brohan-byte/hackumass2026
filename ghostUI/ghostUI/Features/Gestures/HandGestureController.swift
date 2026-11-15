@@ -6,7 +6,7 @@ import UIKit
 
 @MainActor final class HandGestureController: ObservableObject {
     enum Mode { case off, deviceSelection, hud }
-    @Published private(set) var message = "Point your index finger at the speaker and pinch to select."
+    @Published private(set) var message = "Point at an outlined object, pinch, then release."
     @Published private(set) var landmarks: [CGPoint] = []
     @Published private(set) var cursor: CGPoint?
     @Published private(set) var previewDelta: Double = 0
@@ -22,6 +22,8 @@ import UIKit
     }
     @Published private(set) var hoveredTarget: String?
     var onSelectDevice: (() -> Void)?
+    var onSelectObject: ((String) -> Void)?
+    private var sceneTargets: [GestureTarget] = []
     var onBack: (() -> Void)?
     var onClose: (() -> Void)?
     var onCommit: ((String, Int) -> Void)?
@@ -31,6 +33,7 @@ import UIKit
     private var working = false
     private var generation = UUID()
     private var lastFrame: TimeInterval = 0
+    private var lastUsableFrame: TimeInterval = -.infinity
     private var machine = GestureInteraction()
     private var deviceBox: CGRect?
     private var deviceBoxSeen = Date.distantPast
@@ -41,9 +44,9 @@ import UIKit
         mode=value;controlIDs=Array(controls.prefix(3));generation=UUID();machine.reset()
         previewValue=nil;dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false;hoveredTarget=nil
         if value == .hud { selectedControlID=controlIDs.first }
-        if value == .deviceSelection { deviceBox=nil;deviceBoxSeen = .distantPast }
+        if value == .deviceSelection { sceneTargets=[];deviceBox=nil;deviceBoxSeen = .distantPast }
         if value == .off { landmarks=[];cursor=nil }
-        message=value == .hud ? "Pinch a slider thumb, drag up or down, then release to apply." : "Point index at highlighted speaker. Pinch and release to open controls."
+        message=value == .hud ? "Pinch anywhere on a slider rail, drag up or down, then release to apply." : "Point index at highlighted object. Pinch and release to open controls."
     }
     func cancelGesture() {
         generation=UUID();machine.reset();previewValue=nil;dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false
@@ -56,12 +59,16 @@ import UIKit
     func setDeviceBox(_ box: CGRect?) {
         if let box { deviceBox=box;deviceBoxSeen=Date() }
     }
+    func setDeviceObjects(_ objects: [SceneObject]) {
+        sceneTargets=objects.map { GestureTarget(id:"object:"+$0.id,rect:$0.box.insetBy(dx:-0.025,dy:-0.025)) }
+    }
     private func targets() -> [GestureTarget] {
         if mode == .hud { return GestureHUDLayout.targets(controlIDs:controlIDs).map { target in
             guard target.id.hasPrefix("control:"),let c=sliderControls.first(where:{ "control:"+$0.id == target.id }) else { return target }
             let fraction=GestureHUDLayout.fraction(value:sliderValues[c.id] ?? c.min,min:c.min,max:c.max)
             return GestureTarget(id:target.id,rect:GestureHUDLayout.grabRect(in:target.rect,fraction:fraction))
         } }
+        if mode == .deviceSelection,!sceneTargets.isEmpty { return sceneTargets }
         if mode == .deviceSelection,let box=deviceBox,Date().timeIntervalSince(deviceBoxSeen)<1.5 {
             return [GestureTarget(id:"device",rect:box.insetBy(dx:-0.035,dy:-0.025))]
         }
@@ -73,10 +80,14 @@ import UIKit
         let id=generation,time=frame.timestamp
         let transform=frame.displayTransform(for:orientation,viewportSize:viewport)
         worker.detect(frame.capturedImage,display:transform) { [weak self] pose in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return };self.working=false
+                self.working=false
                 guard self.mode != .off,self.generation==id else { return }
                 guard let pose else {
+                    if self.machine.started != nil,time-self.lastUsableFrame<0.35 {
+                        self.message="Keep pinching; recovering hand tracking…";return
+                    }
                     self.machine.reset();self.previewValue=nil;self.dragStart=nil;self.filteredCursor=nil;self.landmarks=[];self.cursor=nil
                     self.previewDelta=0;self.pinchActive=false;self.hoveredTarget=nil
                     self.message="Show one clear hand to the REAR camera. Gesture cancelled if the hand is lost.";return
@@ -86,12 +97,16 @@ import UIKit
                 let point=CGPoint(x:old.x+0.55*(pose.cursor.x-old.x),y:old.y+0.55*(pose.cursor.y-old.y))
                 self.filteredCursor=point;self.cursor=point
                 guard pose.usable,!self.commandBusy else {
+                    if !self.commandBusy,self.machine.started != nil,time-self.lastUsableFrame<0.35 {
+                        self.message="Keep pinching; recovering fingertips…";return
+                    }
                     self.machine.reset();self.previewValue=nil;self.dragStart=nil;self.filteredCursor=nil;self.previewDelta=0;self.pinchActive=false
                     self.message=self.commandBusy ? "Waiting for device confirmation…" : "Hand seen, but fingertips are unclear. Face your palm toward the camera.";return
                 }
+                self.lastUsableFrame=time
                 let targets=self.targets()
                 self.hoveredTarget=targets.first(where:{$0.rect.contains(point)})?.id
-                let pinched=pose.ratio < (self.machine.started == nil ? 0.30 : 0.45)
+                let pinched=pose.ratio < (self.machine.started == nil ? 0.36 : 0.65)
                 let previousStart=self.machine.started
                 let event=self.machine.update(point:point,pinched:pinched,time:time,targets:targets)
                 self.pinchActive=self.machine.started.map { time-$0>=0.25 } ?? false
@@ -112,7 +127,9 @@ import UIKit
                     case "back": self.onBack?()
                     case "close": self.onClose?()
                     default:
-                        if event.target.hasPrefix("control:"),let value=self.previewValue {
+                        if event.target.hasPrefix("object:") {
+                            self.onSelectObject?(String(event.target.dropFirst(7)))
+                        } else if event.target.hasPrefix("control:"),let value=self.previewValue {
                             let controlID=String(event.target.dropFirst(8))
                             if value != self.dragStart {
                                 self.message="Sending slider value…";self.onCommit?(controlID,Int(value))
@@ -125,7 +142,7 @@ import UIKit
 
                 } else if self.hoveredTarget != nil {
                     self.message=self.pinchActive ? "Release to select." : "Target highlighted. Pinch briefly and release."
-                } else { self.message=self.mode == .hud ? "Point at a slider thumb." : "Point index at the speaker outline, pinch, then release." }
+                } else { self.message=self.mode == .hud ? "Pinch anywhere on a slider rail, then drag up or down." : "Point index at the object outline, pinch, then release." }
             }
         }
     }
@@ -154,7 +171,7 @@ nonisolated private final class HandPoseWorker: @unchecked Sendable {
                 let points=recognized.values.filter { $0.confidence>0.3 }.map {
                     CGPoint(x:$0.location.x,y:1-$0.location.y).applying(display)
                 }
-                let usable=[thumb,index,left,right].allSatisfy({$0.confidence>0.45})
+                let usable=thumb.confidence>0.35 && index.confidence>0.35 && left.confidence>0.25 && right.confidence>0.25
                 let width=hypot(left.location.x-right.location.x,left.location.y-right.location.y)
                 
                 let distance=hypot(thumb.location.x-index.location.x,thumb.location.y-index.location.y)

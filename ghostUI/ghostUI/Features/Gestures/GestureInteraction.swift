@@ -19,10 +19,11 @@ nonisolated struct GestureInteraction {
     private(set) var delta: Double = 0
     private var originY: CGFloat = 0
     private var releaseFrames = 0
+    private var releaseStarted: TimeInterval?
     private var needsOpenHand = true
 
     mutating func reset() {
-        target=nil;started=nil;delta=0;releaseFrames=0;needsOpenHand=true
+        target=nil;started=nil;delta=0;releaseFrames=0;releaseStarted=nil;needsOpenHand=true
     }
     mutating func update(point: CGPoint?, pinched: Bool, time: TimeInterval,
                          targets: [GestureTarget]) -> GestureRelease? {
@@ -32,7 +33,7 @@ nonisolated struct GestureInteraction {
             return nil
         }
         if pinched {
-            releaseFrames=0
+            releaseFrames=0;releaseStarted=nil
             if started == nil {
                 target=targets.first(where:{$0.rect.contains(point)})?.id
                 started=time;originY=point.y
@@ -42,8 +43,11 @@ nonisolated struct GestureInteraction {
             return nil
         }
         guard let started else { return nil }
+        if releaseFrames == 0 { releaseStarted=time }
         releaseFrames += 1
         guard releaseFrames>=2 else { return nil }
+        // Brief pinch-ratio flicker must not drop a captured slider mid-drag.
+        if target?.hasPrefix("control:") == true, time-(releaseStarted ?? time)<0.18 { return nil }
         let result: GestureRelease? = time-started>=0.25 ? target.map { GestureRelease(target:$0,delta:delta) } : nil
         reset()
         return result
@@ -66,8 +70,9 @@ nonisolated enum GestureHUDLayout {
         CGPoint(x:rect.midX,y:railTop+(1-fraction)*railLength)
     }
     static func grabRect(in rect: CGRect, fraction: Double) -> CGRect {
-        let point=thumbPoint(in:rect,fraction:fraction)
-        return CGRect(x:point.x-0.10,y:point.y-0.055,width:0.20,height:0.11)
+        // Grab anywhere along the rail, then drag relative to the current value.
+        // This avoids chasing a thumb near the edge of the camera's hand view.
+        return CGRect(x:rect.midX-0.10,y:railTop-0.06,width:0.20,height:railLength+0.12)
     }
     static func fraction(value: Double, min: Double, max: Double) -> Double {
         guard max > min else { return 0 }

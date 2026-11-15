@@ -4,10 +4,17 @@ import Foundation
 struct GhostAPIClient: Sendable {
     let server: String
     let token: String
+    var deviceID: String? = nil
     func request<T: Decodable>(_ path: String, body: [String: Any]? = nil, timeout: TimeInterval = 35) async throws -> T {
+        let route: String
+        if let deviceID {
+            guard !deviceID.isEmpty, deviceID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
+                  path.hasPrefix("/mobile/"), !path.hasPrefix("/mobile/devices") else { throw URLError(.badURL) }
+            route = "/mobile/devices/" + deviceID + "/" + path.dropFirst("/mobile/".count)
+        } else { route = path }
         let address = server.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let base = URL(string: address), base.scheme == "http" || base.scheme == "https",
-              base.host != nil, let url = URL(string: address.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path)
+              base.host != nil, let url = URL(string: address.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + route)
         else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.timeoutInterval = timeout

@@ -91,7 +91,9 @@ def control_for(state):
 def read_value(state):
     domain = state['entity_id'].split('.', 1)[0]
     attrs = state.get('attributes') or {}
-    if state.get('state') in ('off', 'unavailable', 'unknown'):
+    if state.get('state') in ('unavailable', 'unknown'):
+        raise HomeAssistantError('Entity is ' + state['state'] + ': ' + state['entity_id'])
+    if state.get('state') == 'off':
         if domain == 'media_player':
             return round((attrs.get('volume_level') or 0) * 100)
         return 0

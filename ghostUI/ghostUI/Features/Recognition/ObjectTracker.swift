@@ -6,6 +6,13 @@ import UIKit
 
 /// Periodic local-Mac YOLOE detections + fast iPhone Vision tracking.
 @MainActor final class ObjectTracker: ObservableObject {
+    @Published private(set) var sceneObjects: [SceneObject] = []
+    private var sceneWorkers: [String:RegionTrackingWorker] = [:]
+    private var sceneSeeds: [String:CGRect] = [:]
+    private var sceneBusy: Set<String> = []
+    private var sceneMemory=SceneSelectionMemory()
+    private var selectionInteraction=false
+    private var interactionHeld=false
     @Published private(set) var box: CGRect?
     @Published private(set) var contour: [CGPoint] = []
     private var contourReferenceBox: CGRect?
@@ -31,11 +38,13 @@ import UIKit
     private let worker = RegionTrackingWorker()
 
     func configure(_ client: RecognitionClient) async {
+        reset()
+        ready=false; views=0
         self.client = client
         do {
             let status = try await client.status()
             views = status.views; ready = status.modelAvailable
-            message = !ready ? "Model missing on Mac. Run tools/setup_vision.py." : views == 0 ? "Enroll up to four boxed views: front, left, right, and another distance." : "Saved views loaded. Hold steady while YOLOE searches."
+            message = !ready ? "Object recognition needs setup on your Mac." : views == 0 ? "Register an object to get started." : "Point at a registered object."
         } catch { message = error.localizedDescription }
     }
     func clearEnrollment() async {
@@ -91,13 +100,59 @@ import UIKit
         }
     }
     func reset(_ reason: String = "Finding enrolled object again…") {
+        sceneObjects=[];sceneSeeds=[:];sceneWorkers=[:];sceneBusy=[]
+        sceneMemory.clear();selectionInteraction=false;interactionHeld=false
         generation = UUID(); box = nil; seed = nil; contour = []; contourReferenceBox = nil; confidence = 0; lastTrack = 0
         message = reason
     }
     func pause(_ paused: Bool) {
         enabled = !paused
-        if paused { generation = UUID(); box = nil; seed = nil }
+        if paused {
+            generation = UUID();box=nil;seed=nil;sceneObjects=[];sceneSeeds=[:];sceneBusy=[]
+            sceneMemory.clear();selectionInteraction=false;interactionHeld=false
+        }
     }
+    private var scenePose: SceneSelectionPose? {
+        guard let matrix=frame?.camera.transform else { return nil }
+        return SceneSelectionPose(position:SIMD3(matrix.columns.3.x,matrix.columns.3.y,matrix.columns.3.z),
+                                  rotation:simd_quatf(matrix).vector)
+    }
+    private var selectionTime: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
+    func setSelectionInteraction(_ active: Bool) {
+        guard enabled,client?.isScene == true else { return }
+        if active != selectionInteraction {
+            selectionInteraction=active
+            if !active {
+                sceneMemory.endInteraction(time:selectionTime);interactionHeld=false;lastDetect = .distantPast
+            }
+        }
+        refreshSceneSelection()
+    }
+
+    func canSelectSceneObject(_ id: String) -> Bool {
+        refreshSceneSelection()
+        return enabled && sceneObjects.contains(where:{$0.id==id})
+    }
+
+    private func refreshSceneSelection() {
+        guard let pose=scenePose else { return }
+        let now=selectionTime
+        let visible=sceneMemory.visible(pose:pose,time:now)
+        if visible != sceneObjects {
+            sceneObjects=visible
+            let ids=Set(visible.map(\.id))
+            sceneWorkers=sceneWorkers.filter{ids.contains($0.key)}
+            sceneSeeds=sceneSeeds.filter{ids.contains($0.key)}
+        }
+        if selectionInteraction && !interactionHeld && sceneMemory.beginInteraction(pose:pose,time:now) {
+            interactionHeld=true
+            // Discard object results captured before the hand entered the view.
+            generation=UUID();sceneBusy=[]
+            sceneSeeds=Dictionary(uniqueKeysWithValues:visible.map{($0.id,$0.box)})
+        }
+    }
+
     private func jpegSnapshot() -> Data? {
         guard let image = latestSnapshot?() else { return nil }
         return jpegSnapshot(image)
@@ -119,14 +174,19 @@ import UIKit
             detectedOrientation = orientation; reset("Orientation changed. Looking for the enrolled object…")
         }
         guard enabled, !enrolling else { return }
+        if client?.isScene == true {
+            refreshSceneSelection()
+            if sceneMemory.isHolding(at:selectionTime) { return }
+        }
         // Single request in flight; no queue of stale frames. Detector retries
         // periodically even when tracking succeeds, correcting local drift.
-        if ready, views>0, !detectionBusy, Date().timeIntervalSince(lastDetect)>3,
+        let detectionInterval: TimeInterval = sceneObjects.isEmpty && box == nil ? 0.8 : 1.5
+        if ready, views>0, !detectionBusy, Date().timeIntervalSince(lastDetect)>detectionInterval,
            let client, let jpeg=jpegSnapshot() {
             detectionBusy = true; lastDetect = Date()
             let id = generation, capturePose = frame.camera.transform
             let start = Date()
-            if box == nil { message = "YOLOE searching on Mac… Hold the phone steady." }
+            if box == nil { message = "Looking for registered objects…" }
             Task {
                 defer { detectionBusy = false; lastDetect = Date() }
                 do {
@@ -139,7 +199,11 @@ import UIKit
                     // Old image coordinates cannot be pasted onto a moved camera.
                     guard simd_distance(oldPosition,newPosition)<0.10, rotation>0.99,
                           Date().timeIntervalSince(start)<12 else {
-                        message = result.latencyMs > 10000 ? "Model finished warming up. Hold steady for the next detection." : "Detection arrived after camera movement. Hold steady for another search."; return
+                        message = "Hold steady for another moment."; return
+                    }
+                    if client.isScene {
+                        installScene(result)
+                        return
                     }
                     let matches=result.detections.filter { $0.score>=0.35 && $0.box.count==4 }
                     guard matches.count == 1, let detected=matches.first else {
@@ -159,12 +223,17 @@ import UIKit
                 } catch { if generation == id { message = error.localizedDescription } }
             }
         }
+        if client?.isScene == true {
+            trackScene(frame)
+            return
+        }
         guard box != nil, !trackingBusy, frame.timestamp-lastTrack>0.10 else { return }
         trackingBusy=true;lastTrack=frame.timestamp
         let id=generation,initial=seed;seed=nil
         worker.track(frame.capturedImage,generation:id,seed:initial,display:display) { [weak self] result in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return };self.trackingBusy=false
+                self.trackingBusy=false
                 guard self.generation==id else { return }
                 if let (box,score)=result, score>=0.45 {
                     if let previous=self.contourReferenceBox,previous.width>0,previous.height>0 {
@@ -181,6 +250,66 @@ import UIKit
             }
         }
     }
+    private func installScene(_ result: RecognitionResult) {
+        var found: [SceneObject] = []
+        for detection in result.detections {
+            guard let id=detection.deviceId,let name=detection.name,detection.score>=0.35,
+                  detection.box.count==4,detection.box.allSatisfy({$0.isFinite}) else { continue }
+            let b=detection.box, rect=CGRect(x:b[0],y:b[1],width:b[2],height:b[3])
+            guard rect.width>0.01,rect.height>0.01,rect.minX>=0,rect.minY>=0,
+                  rect.maxX<=1.001,rect.maxY<=1.001,!found.contains(where:{$0.id==id}) else { continue }
+            let contour=(detection.polygon ?? []).compactMap { point -> CGPoint? in
+                guard point.count==2,point.allSatisfy({$0.isFinite && $0>=0 && $0<=1}) else { return nil }
+                return CGPoint(x:point[0],y:point[1])
+            }
+            found.append(SceneObject(id:id,name:name,box:rect,contour:contour,confidence:Float(detection.score)))
+        }
+        guard let pose=scenePose else { return }
+        sceneMemory.observe(found,pose:pose,time:selectionTime)
+        let visible=sceneMemory.visible(pose:pose,time:selectionTime)
+        generation=UUID();sceneObjects=visible;sceneBusy=[]
+        sceneSeeds=Dictionary(uniqueKeysWithValues:visible.map{($0.id,$0.box)})
+        sceneWorkers=sceneWorkers.filter { key,_ in visible.contains(where:{$0.id==key}) }
+        refreshSceneSelection()
+        message=visible.isEmpty ? "Point at a registered object, or register a new one." : "Tap an outline or point and pinch."
+    }
+
+    private func trackScene(_ frame: ARFrame) {
+        guard !sceneObjects.isEmpty,frame.timestamp-lastTrack>0.10 else { return }
+        lastTrack=frame.timestamp
+        for object in sceneObjects where !sceneBusy.contains(object.id) {
+            let worker=sceneWorkers[object.id] ?? RegionTrackingWorker()
+            sceneWorkers[object.id]=worker;sceneBusy.insert(object.id)
+            let generationID=generation,seed=sceneSeeds.removeValue(forKey:object.id)
+            worker.track(frame.capturedImage,generation:generationID,seed:seed,display:display) { [weak self] result in
+                guard let self else { return }
+                Task { @MainActor in
+                    guard self.generation==generationID else { return }
+                    self.sceneBusy.remove(object.id)
+                    guard let index=self.sceneObjects.firstIndex(where:{$0.id==object.id}) else { return }
+                    guard let (box,score)=result,score>=0.45 else {
+                        // Keep the recent hit target briefly while the hand
+                        // covers the object; reseed local tracking on retry.
+                        self.sceneWorkers.removeValue(forKey:object.id)
+                        self.sceneSeeds[object.id]=self.sceneObjects[index].box
+                        self.refreshSceneSelection()
+                        return
+                    }
+                    let previous=self.sceneObjects[index].box
+                    var updated=self.sceneObjects[index]
+                    updated.contour=updated.contour.map { point in CGPoint(
+                        x:box.minX+(point.x-previous.minX)*box.width/previous.width,
+                        y:box.minY+(point.y-previous.minY)*box.height/previous.height) }
+                    updated.box=box;updated.confidence=score
+                    if let pose=self.scenePose {
+                        self.sceneMemory.track(updated,pose:pose,time:self.selectionTime)
+                        self.refreshSceneSelection()
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 private final class RegionTrackingWorker: @unchecked Sendable {

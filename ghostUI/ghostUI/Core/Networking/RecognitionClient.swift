@@ -10,6 +10,8 @@ struct RecognitionDetection: Decodable {
     let box: [Double]
     let score: Double
     let polygon: [[Double]]?
+    let deviceId: String?
+    let name: String?
 }
 struct RecognitionResult: Decodable {
     let detections: [RecognitionDetection]
@@ -19,9 +21,11 @@ struct RecognitionResult: Decodable {
 struct RecognitionClient: Sendable {
     let server: String
     let token: String
+    var deviceID: String? = nil
+    var isScene = false
     func call<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
-        try await GhostAPIClient(server:server,token:token)
-            .request("/mobile/vision"+path,body:body,timeout:90)
+        let api = GhostAPIClient(server:server,token:token,deviceID:isScene ? nil : deviceID)
+        return try await api.request((isScene ? "/mobile/scene/vision" : "/mobile/vision")+path,body:body,timeout:90)
     }
 
     func status() async throws -> RecognitionStatus { try await call("") }

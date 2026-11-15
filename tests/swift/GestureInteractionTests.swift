@@ -66,6 +66,19 @@ import CoreGraphics
             }
         }
         assert(GestureHUDLayout.thumbPoint(in:sliders[0].rect,fraction:1).y < GestureHUDLayout.thumbPoint(in:sliders[0].rect,fraction:0).y)
+        // A captured slider survives a brief apparent release while dragging.
+        var drag=GestureInteraction()
+        let rail=GestureTarget(id:"control:brightness",rect:CGRect(x:0.4,y:0.3,width:0.2,height:0.4))
+        _=drag.update(point:inside,pinched:false,time:20,targets:[rail])
+        _=drag.update(point:inside,pinched:true,time:20.1,targets:[rail])
+        _=drag.update(point:CGPoint(x:0.4,y:0.6),pinched:true,time:20.5,targets:[])
+        _=drag.update(point:inside,pinched:false,time:20.6,targets:[])
+        assert(drag.update(point:inside,pinched:false,time:20.7,targets:[]) == nil)
+        assert(drag.started != nil)
+        _=drag.update(point:CGPoint(x:0.4,y:0.65),pinched:true,time:20.75,targets:[])
+        _=drag.update(point:inside,pinched:false,time:21,targets:[])
+        assert(drag.update(point:inside,pinched:false,time:21.1,targets:[]) == nil)
+        assert(drag.update(point:inside,pinched:false,time:21.2,targets:[])?.target == "control:brightness")
         print("PASS: gesture arming, debounce, cancellation, timeout, captured target and vertical slider ranges")
     }
 }

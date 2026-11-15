@@ -26,6 +26,34 @@ class HomeAssistantTests(unittest.TestCase):
     def adapter(self, entity):
         return HomeAssistantAdapter(entity, client=self.client)
 
+    def test_unavailable_state_is_not_reported_as_confirmed_zero(self):
+        from ghostui_backend.integrations.homeassistant import read_value, HomeAssistantError
+        for unavailable in ('unavailable', 'unknown'):
+            with self.assertRaises(HomeAssistantError):
+                read_value({'entity_id': 'light.desk', 'state': unavailable,
+                            'attributes': {'brightness': 0}})
+        self.assertEqual(read_value({'entity_id': 'light.desk', 'state': 'off', 'attributes': {}}), 0)
+
+    def test_saved_registry_uses_existing_homeassistant_adapter(self):
+        from tempfile import TemporaryDirectory
+        from ghostui_backend.devices import DeviceManager
+        with TemporaryDirectory() as root:
+            manager = DeviceManager(root)
+            try:
+                light = manager.register('homeassistant', 'light.ceiling_lights')['activeDeviceId']
+                fan = manager.register('homeassistant', 'fan.desk_fan')['activeDeviceId']
+                self.assertNotEqual(light, fan)
+                manager.select(light)
+                with manager.session(light) as session:
+                    self.assertEqual(session.worker.request(('brightness', 45)), {'brightness': 45})
+            finally: manager.close()
+            restored = DeviceManager(root)
+            try:
+                restored.select(restored.last_selected)
+                self.assertEqual(restored.active.record['id'], light)
+                self.assertEqual(restored.active.worker.request(), {'brightness': 45})
+            finally: restored.close()
+
     def test_light_through_device_worker_confirms_readback(self):
         worker = DeviceWorker('light.ceiling_lights', False, 'homeassistant')
         self.addCleanup(worker.close)

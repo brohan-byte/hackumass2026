@@ -12,6 +12,14 @@ def make_handler(adapter, port):
     allowed_origins = {'http://' + host for host in allowed_hosts}
 
     class Handler(BaseHTTPRequestHandler):
+        @property
+        def device_worker(self):
+            return getattr(self, 'worker', adapter)
+
+        @property
+        def session_token(self):
+            return getattr(self, 'command_token', token)
+
         def reply(self, body, code=200, html=False):
             data = body.encode() if html else json.dumps(body).encode()
             self.send_response(code)
@@ -37,9 +45,9 @@ def make_handler(adapter, port):
                 return
             path = urlparse(self.path).path
             if path == '/':
-                self.reply(PAGE.replace('__TOKEN__', token), html=True)
+                self.reply(PAGE.replace('__TOKEN__', self.session_token), html=True)
             elif path == '/capabilities':
-                self.reply({**adapter.capabilities, 'simulated': adapter.simulated})
+                self.reply({**self.device_worker.capabilities, 'simulated': self.device_worker.simulated})
             elif path == '/state':
                 self.run_device()
             else:
@@ -47,7 +55,7 @@ def make_handler(adapter, port):
 
         def run_device(self, change=None):
             try:
-                self.reply(adapter.request(change))
+                self.reply(self.device_worker.request(change))
             except Exception as exc:
                 self.reply({'error': str(exc) or type(exc).__name__}, 503)
 
@@ -56,7 +64,7 @@ def make_handler(adapter, port):
                 return
             if urlparse(self.path).path != '/command':
                 return self.reply({'error': 'Not found'}, 404)
-            if self.headers.get('X-GhostUI-Token') != token:
+            if self.headers.get('X-GhostUI-Token') != self.session_token:
                 return self.reply({'error': 'Missing or invalid session token'}, 403)
             try:
                 length = int(self.headers.get('Content-Length', '0'))
@@ -66,9 +74,9 @@ def make_handler(adapter, port):
                 if not isinstance(data, dict) or set(data) != {'capability', 'value'}:
                     raise ValueError('Expected capability and value only')
                 field, value = data['capability'], data['value']
-                if not isinstance(field, str) or field not in adapter.limits:
+                if not isinstance(field, str) or field not in self.device_worker.limits:
                     raise ValueError('Unknown capability')
-                lo, hi = adapter.limits[field]
+                lo, hi = self.device_worker.limits[field]
                 if type(value) is not int or not lo <= value <= hi:
                     raise ValueError(f'Expected an integer in {lo}..{hi}')
             except (ValueError, TypeError) as exc:

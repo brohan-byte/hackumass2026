@@ -48,7 +48,7 @@ struct GestureControlOverlay: View {
                     .position(x:geometry.size.width*0.5,y:geometry.size.height*0.15)
                 VStack(spacing:6) {
                     Text(hand.message).font(.callout).multilineTextAlignment(.center)
-                    Text(layoutNotice).font(.caption2).lineLimit(2)
+                    if !layoutNotice.isEmpty { Text(layoutNotice).font(.caption2).lineLimit(2) }
                     Text(deviceStatus).font(.caption).foregroundStyle(.secondary)
                     Button("Use touch sliders",action:onTouch).font(.caption)
                 }.padding(8).frame(width:geometry.size.width*0.94)
@@ -98,7 +98,7 @@ struct GestureControlOverlay: View {
                             .position(x:card.size.width/2,y:top-16)
                         Text("\(Int(c.min))").font(.caption2)
                             .position(x:card.size.width/2,y:top+length+18)
-                        Text(dragging ? "Release to apply" : ready ? "Pinch to grab" : "Pinch · drag ↕")
+                        Text(dragging ? "Release to apply" : ready ? "Pinch to grab" : "Pinch rail · drag ↕")
                             .font(.caption2).multilineTextAlignment(.center)
                             .frame(width:card.size.width-6)
                             .position(x:card.size.width/2,y:card.size.height*0.94)

@@ -11,6 +11,8 @@ struct ObjectSelectionOverlay: View {
     let onRegister: (CGRect) -> Void
     let onSelect: () -> Void
     var onInvalid: () -> Void = {}
+    var onSelectionBegan: () -> Void = {}
+    var onSelectionEnded: () -> Void = {}
 
     var body: some View {
         GeometryReader { geometry in
@@ -37,14 +39,17 @@ struct ObjectSelectionOverlay: View {
                             }.stroke(.mint,lineWidth:3).shadow(color:.mint,radius:8)
                         }.allowsHitTesting(false)
                     } else { outline(rect,color:.mint).allowsHitTesting(false) }
-                    Button(action: onSelect) { Color.clear.contentShape(Rectangle()) }
-                        .buttonStyle(.plain)
+                    ObjectHitSurface(label:"Open controls for " + deviceName,
+                        onBegin:onSelectionBegan,onSelect:onSelect,onEnd:onSelectionEnded)
                         .frame(width: max(44, rect.width + 40), height: max(44, rect.height + 40))
                         .position(x: rect.midX, y: rect.midY)
-                        .accessibilityLabel("Open controls for " + deviceName)
                     Text(deviceName + " · Tap for controls")
                         .font(.caption.bold()).padding(6).background(.ultraThinMaterial)
-                        .position(x: rect.midX, y: max(16, rect.minY - 18)).allowsHitTesting(false)
+                        .overlay {
+                            ObjectHitSurface(label:"Open controls for " + deviceName,
+                                onBegin:onSelectionBegan,onSelect:onSelect,onEnd:onSelectionEnded)
+                        }
+                        .position(x: rect.midX, y: max(16, rect.minY - 18))
                 }
             }
         }
@@ -57,6 +62,36 @@ struct ObjectSelectionOverlay: View {
             .shadow(color: color.opacity(0.8), radius: 9)
             .frame(width: rect.width, height: rect.height).position(x: rect.midX, y: rect.midY)
     }
+}
+
+/// Capture the device at touch-down, before moving camera geometry can remove
+/// its hit area. UIKit preserves normal touch-up-inside/cancel behavior.
+private struct ObjectHitSurface: UIViewRepresentable {
+    let label: String
+    let onBegin: () -> Void
+    let onSelect: () -> Void
+    let onEnd: () -> Void
+    func makeUIView(context: Context) -> ObjectHitButton { ObjectHitButton(frame:.zero) }
+    func updateUIView(_ view: ObjectHitButton,context: Context) {
+        view.accessibilityLabel=label
+        view.onBegin=onBegin;view.onSelect=onSelect;view.onEnd=onEnd
+    }
+}
+private final class ObjectHitButton: UIButton {
+    var onBegin: (() -> Void)?
+    var onSelect: (() -> Void)?
+    var onEnd: (() -> Void)?
+    override init(frame: CGRect) {
+        super.init(frame:frame)
+        backgroundColor = .clear
+        addTarget(self,action:#selector(began),for:.touchDown)
+        addTarget(self,action:#selector(selected),for:.touchUpInside)
+        addTarget(self,action:#selector(cancelled),for:[.touchUpOutside,.touchCancel])
+    }
+    required init?(coder:NSCoder) { fatalError("init(coder:) is not used") }
+    @objc private func began() { onBegin?() }
+    @objc private func selected() { onSelect?();onEnd?() }
+    @objc private func cancelled() { onEnd?() }
 }
 
 /// Native gesture surface, independent of the AR renderer's gesture handling.

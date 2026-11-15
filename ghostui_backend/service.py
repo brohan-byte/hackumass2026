@@ -5,11 +5,11 @@ from .registry import create_adapter
 from .contracts import numeric_limits, validate_command
 
 class DeviceWorker:
-    def __init__(self, address=None, simulated=False, device='marshall'):
+    def __init__(self, address=None, simulated=False, device='marshall', binding=None):
         self.integration_id = device
         self.pool = ThreadPoolExecutor(max_workers=1)
         try:
-            self.adapter = self.pool.submit(create_adapter, device, address, simulated).result()
+            self.adapter = self.pool.submit(create_adapter, device, address, simulated, binding).result()
             self.capabilities = self.adapter.capabilities
             self.limits = numeric_limits(self.capabilities)
             self.simulated = self.adapter.simulated

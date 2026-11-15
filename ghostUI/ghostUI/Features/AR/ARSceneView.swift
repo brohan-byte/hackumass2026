@@ -16,6 +16,7 @@ struct ARScreen<Controls: View>: View {
     let commandBusy: Bool
     let onGestureChange: (String,Int) -> Void
     let deviceStatus: String
+    var registrationOnly = false
     @ViewBuilder var controls: () -> Controls
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -59,36 +60,41 @@ struct ARScreen<Controls: View>: View {
                     }
                 }
                 if mode == .camera {
-                    VStack(spacing:7) {
+                    VStack(spacing:8) {
                         HStack {
-                            Button("Close") { dismiss() };Spacer()
-                            Button("Add view") { tracker.reset();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true }
-                                .disabled(!permission || tracker.enrolling || tracker.views>=4)
-                        }
-                        HStack {
-                            Text("Views: \(tracker.views)/4").font(.caption);Spacer()
-                            Button("Clear") { Task { await tracker.clearEnrollment();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true } }
+                            Button(registrationOnly ? "Done" : "Close") { dismiss() }
+                                .disabled(tracker.enrolling)
+                            Spacer()
+                            if tracker.views < 4 {
+                                Button("Add angle") {
+                                    tracker.reset();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true
+                                }.disabled(!permission || tracker.enrolling)
+                            }
+                            Menu {
+                                Button("Replace saved views",role:.destructive) {
+                                    Task { await tracker.clearEnrollment();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true }
+                                }
+                            } label: { Image(systemName:"ellipsis") }
                                 .disabled(tracker.enrolling)
                         }
                         if selecting {
-                            Text(drawingMessage).font(.caption)
-                            HStack {
-                                if tracker.enrolling {
-                                    ProgressView("Saving view…")
-                                } else if let pendingBox {
-                                    Button("Retry saving") { Task { await saveEnrollment(pendingBox) } }
+                            Text("Draw a box around " + deviceName + ".").font(.subheadline)
+                            if tracker.enrolling { ProgressView("Saving view…") }
+                            else if let pendingBox {
+                                Text(drawingMessage).font(.caption)
+                                HStack {
+                                    Button("Retry") { Task { await saveEnrollment(pendingBox) } }
                                     Button("Redraw") { self.pendingBox=nil;tracker.discardEnrollmentImage() }
-                                } else {
-                                    Text("Draw a box around the object. It saves when you lift your finger.").font(.caption)
                                 }
                             }
                         } else {
-                            Toggle("Finger cursor",isOn:$handsEnabled).font(.caption)
-                            Text(hand.message).font(.caption).multilineTextAlignment(.center)
+                            Text("View saved · \(tracker.views)/4 angles").font(.subheadline)
+                            Text("Add another angle or tap Done.").font(.caption)
                         }
-                        Text(tracker.message).font(.caption).multilineTextAlignment(.center)
-                        Text(diagnostics).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                        Button("Touch controls") { mode = .touch }.font(.caption)
+                        if !permission { Text(diagnostics).font(.caption) }
+                        if tracker.message.contains("failed") || tracker.message.contains("unavailable") {
+                            Text(tracker.message).font(.caption)
+                        }
                     }.padding().background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius:16)).padding()
                     if !selecting && handsEnabled { HandCursorOverlay(hand:hand) }
@@ -107,7 +113,7 @@ struct ARScreen<Controls: View>: View {
             permission=await AVCaptureDevice.requestAccess(for:.video)
             if !permission { diagnostics="Enable camera access in Settings → GhostUI." }
             // Reuse saved enrollment immediately; new devices still open registration.
-            selecting = !(tracker.ready && tracker.views > 0)
+            selecting = registrationOnly ? tracker.views == 0 : !(tracker.ready && tracker.views > 0)
             syncMode()
         }
         .onChange(of:tracker.views) { _,views in
@@ -218,7 +224,11 @@ struct TrackingCameraView: UIViewRepresentable {
                 if self.frames == 1 || self.frames % 60 == 0 {
                     self.parent.diagnostics = "Camera live · Frames: \(self.frames) · Tracking confidence: \(Int(self.parent.tracker.confidence * 100))%"
                 }
-                if !self.parent.pauseObjects { self.parent.handGestures.setDeviceBox(self.parent.tracker.box) }
+                if !self.parent.pauseObjects {
+                    if self.parent.tracker.client?.isScene == true {
+                        self.parent.handGestures.setDeviceObjects(self.parent.tracker.sceneObjects)
+                    } else { self.parent.handGestures.setDeviceBox(self.parent.tracker.box) }
+                }
                 self.parent.handGestures.process(frame,orientation:orientation,viewport:view.bounds.size)
                 if !self.parent.pauseObjects {
                     self.parent.tracker.process(frame, orientation: orientation, viewport: view.bounds.size, snapshot: { [weak view] in view?.snapshot() ?? UIImage() })

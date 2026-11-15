@@ -30,6 +30,7 @@ struct ARScreen<Controls: View>: View {
     @State private var pendingBox: CGRect?
     @State private var drawingMessage = "Drag below this panel to select the device."
     @State private var diagnostics = "Waiting for camera"
+    @State private var zoom: CGFloat = 1
 
     private var supportedControls: [DeviceControl] { Array(gestureControls.prefix(3)) }
     var body: some View {
@@ -37,6 +38,7 @@ struct ARScreen<Controls: View>: View {
             ZStack(alignment:.top) {
                 Color.black
                 if permission && ARWorldTrackingConfiguration.isSupported {
+                    ZStack {
                     TrackingCameraView(tracker:tracker,handGestures:hand,
                                        pauseObjects:mode != .camera,diagnostics:$diagnostics)
                         .frame(width:geometry.size.width,height:geometry.size.height)
@@ -58,6 +60,9 @@ struct ARScreen<Controls: View>: View {
                             onInvalid:{ tracker.discardEnrollmentImage();pendingBox=nil;drawingMessage="Draw a larger box below this panel." })
                             .allowsHitTesting(!tracker.enrolling)
                     }
+                    }
+                    .frame(width:geometry.size.width,height:geometry.size.height)
+                    .cameraZoom($zoom,enabled:mode == .camera)
                 }
                 if mode == .camera {
                     VStack(spacing:8) {
@@ -97,7 +102,15 @@ struct ARScreen<Controls: View>: View {
                         }
                     }.padding().background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius:16)).padding()
-                    if !selecting && handsEnabled { HandCursorOverlay(hand:hand) }
+                    if !selecting && handsEnabled {
+                        // Same scale as the zoomed camera so the cursor stays on the hand.
+                        HandCursorOverlay(hand:hand)
+                            .frame(width:geometry.size.width,height:geometry.size.height)
+                            .scaleEffect(zoom,anchor:.center).clipped()
+                    }
+                    if permission && ARWorldTrackingConfiguration.isSupported {
+                        VStack { Spacer();CameraZoomPicker(zoom:$zoom).padding(.bottom,40) }
+                    }
                 }
             }
         }

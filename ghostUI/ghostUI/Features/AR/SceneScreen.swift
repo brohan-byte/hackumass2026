@@ -28,6 +28,7 @@ struct SceneScreen<Controls: View>: View {
     @State private var diagnostics="Waiting for camera…"
     @State private var error: String?
     @State private var touchingObject=false
+    @State private var zoom: CGFloat = 1
 
     private var sliders: [DeviceControl] {
         guard let capabilities else { return [] }
@@ -39,6 +40,7 @@ struct SceneScreen<Controls: View>: View {
             ZStack(alignment:.top) {
                 Color.black.ignoresSafeArea()
                 if permission && ARWorldTrackingConfiguration.isSupported {
+                    ZStack {
                     TrackingCameraView(tracker:tracker,handGestures:hand,
                         pauseObjects:mode != .camera || paused,diagnostics:$diagnostics)
                         .frame(width:geometry.size.width,height:geometry.size.height)
@@ -52,6 +54,9 @@ struct SceneScreen<Controls: View>: View {
                         }
                         HandCursorOverlay(hand:hand)
                     }
+                    }
+                    .frame(width:geometry.size.width,height:geometry.size.height)
+                    .cameraZoom($zoom,enabled:mode == .camera)
                 }
                 if mode == .camera || mode == .loading {
                     VStack {
@@ -64,6 +69,9 @@ struct SceneScreen<Controls: View>: View {
                         Spacer()
                         if mode == .loading { ProgressView("Opening controls…").padding().background(.regularMaterial).clipShape(Capsule()) }
                         else {
+                            if permission && ARWorldTrackingConfiguration.isSupported {
+                                CameraZoomPicker(zoom:$zoom)
+                            }
                             VStack(spacing:12) {
                                 Text(cameraMessage).font(.callout).multilineTextAlignment(.center).lineLimit(3)
                                 Button("Register object",action:onRegister)

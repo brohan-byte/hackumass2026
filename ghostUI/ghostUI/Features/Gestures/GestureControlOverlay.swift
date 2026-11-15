@@ -21,6 +21,9 @@ struct HandCursorOverlay: View {
 }
 struct GestureControlOverlay: View {
     let deviceName: String
+    let layoutTitle: String
+    let groups: [String:String]
+    let layoutNotice: String
     let controls: [DeviceControl]
     let values: [String:Double]
     @ObservedObject var hand: HandGestureController
@@ -40,11 +43,12 @@ struct GestureControlOverlay: View {
                         .overlay(RoundedRectangle(cornerRadius:14).stroke(.mint.opacity(0.7),lineWidth:2))
                         .position(x:target.rect.midX*geometry.size.width,y:target.rect.midY*geometry.size.height)
                 }
-                Text(deviceName + " · Device locked")
+                Text(layoutTitle)
                     .font(.headline).padding(6).background(.regularMaterial)
                     .position(x:geometry.size.width*0.5,y:geometry.size.height*0.15)
                 VStack(spacing:6) {
                     Text(hand.message).font(.callout).multilineTextAlignment(.center)
+                    Text(layoutNotice).font(.caption2).lineLimit(2)
                     Text(deviceStatus).font(.caption).foregroundStyle(.secondary)
                     Button("Use touch sliders",action:onTouch).font(.caption)
                 }.padding(8).frame(width:geometry.size.width*0.94)
@@ -71,7 +75,10 @@ struct GestureControlOverlay: View {
                     let y=top+(1-fraction)*length
                     let ready=hand.hoveredTarget==target.id || dragging
                     ZStack {
-                        Text(c.label).font(.subheadline.bold()).lineLimit(1).minimumScaleFactor(0.65)
+                        VStack(spacing:2) {
+                            Text(groups[id] ?? "Controls").font(.caption2).foregroundStyle(.secondary)
+                            Text(c.label).font(.subheadline.bold())
+                        }.lineLimit(1).minimumScaleFactor(0.65)
                             .position(x:card.size.width/2,y:card.size.height*0.08)
                         Text("\(Int(value))").font(.title2.monospacedDigit())
                             .foregroundStyle(dragging ? .green : .white)

@@ -5,6 +5,7 @@ protocols belong in the roadmap, never in the selectable catalog.
 """
 from dataclasses import dataclass
 from .marshall import MarshallAdapter
+from .wled import GeneratedAdapter as WledAdapter
 from .demo_light import DemoLightAdapter
 from .homeassistant import HomeAssistantAdapter
 
@@ -22,6 +23,8 @@ class Integration:
                 "setup": self.setup, "simulationOnly": self.simulation_only}
 
 INTEGRATIONS = {
+    "wled": Integration("wled", "WLED brightness", "wifi",
+        "Supply the WLED controller IP or hostname on the Mac.", WledAdapter),
     "marshall": Integration("marshall", "Marshall Acton III", "ble",
         "Scan and verify the Acton III model and supported BLE characteristics, or supply its address.", MarshallAdapter),
     "demo-light": Integration("demo-light", "Demo light (simulation)", "simulation",

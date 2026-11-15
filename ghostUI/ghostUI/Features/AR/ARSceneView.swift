@@ -7,6 +7,9 @@ import UIKit
 
 struct ARScreen<Controls: View>: View {
     let deviceName: String
+    let layoutTitle: String
+    let layoutGroups: [String:String]
+    let layoutNotice: String
     let recognition: RecognitionClient
     let gestureControls: [DeviceControl]
     let values: [String:Double]
@@ -37,31 +40,47 @@ struct ARScreen<Controls: View>: View {
                                        pauseObjects:mode != .camera,diagnostics:$diagnostics)
                         .frame(width:geometry.size.width,height:geometry.size.height)
                     if mode == .camera {
+                        if selecting, let preview = tracker.enrollmentPreview {
+                            Image(uiImage:preview).resizable()
+                                .frame(width:geometry.size.width,height:geometry.size.height)
+                                .allowsHitTesting(false)
+                        }
                         ObjectSelectionOverlay(box:selecting ? pendingBox : tracker.box,
                             contour:selecting ? [] : tracker.contour,selecting:selecting,
                             deviceName:deviceName,
-                            onRegister:{ rect in tracker.stageEnrollmentImage();pendingBox=rect;drawingMessage="Box selected. Tap Save view." },
+                            onBeginRegistration:{ tracker.stageEnrollmentImage() },
+                            onRegister:{ rect in
+                                pendingBox=rect
+                                Task { await saveEnrollment(rect) }
+                            },
                             onSelect:{ mode = .hud },
-                            onInvalid:{ drawingMessage="Draw a larger box below this panel." })
+                            onInvalid:{ tracker.discardEnrollmentImage();pendingBox=nil;drawingMessage="Draw a larger box below this panel." })
+                            .allowsHitTesting(!tracker.enrolling)
                     }
                 }
                 if mode == .camera {
                     VStack(spacing:7) {
                         HStack {
                             Button("Close") { dismiss() };Spacer()
-                            Button("Add view") { tracker.reset();pendingBox=nil;selecting=true }
+                            Button("Add view") { tracker.reset();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true }
                                 .disabled(!permission || tracker.enrolling || tracker.views>=4)
                         }
                         HStack {
                             Text("Views: \(tracker.views)/4").font(.caption);Spacer()
-                            Button("Clear") { Task { await tracker.clearEnrollment();pendingBox=nil;selecting=true } }
+                            Button("Clear") { Task { await tracker.clearEnrollment();tracker.discardEnrollmentImage();pendingBox=nil;selecting=true } }
                                 .disabled(tracker.enrolling)
                         }
                         if selecting {
+                            Text(drawingMessage).font(.caption)
                             HStack {
-                                Button(tracker.enrolling ? "Saving…" : "Save view") { if let pendingBox { tracker.select(pendingBox) } }
-                                    .disabled(pendingBox==nil || tracker.enrolling)
-                                Text(drawingMessage).font(.caption)
+                                if tracker.enrolling {
+                                    ProgressView("Saving view…")
+                                } else if let pendingBox {
+                                    Button("Retry saving") { Task { await saveEnrollment(pendingBox) } }
+                                    Button("Redraw") { self.pendingBox=nil;tracker.discardEnrollmentImage() }
+                                } else {
+                                    Text("Draw a box around the object. It saves when you lift your finger.").font(.caption)
+                                }
                             }
                         } else {
                             Toggle("Finger cursor",isOn:$handsEnabled).font(.caption)
@@ -106,10 +125,11 @@ struct ARScreen<Controls: View>: View {
             if phase != .active { hand.setMode(.off);tracker.pause(true) }
             else { syncMode() }
         }
-        .onDisappear { hand.setMode(.off);tracker.pause(true) }
+        .onDisappear { hand.setMode(.off);tracker.pause(true);tracker.discardEnrollmentImage() }
         .overlay {
             if mode == .hud {
-                GestureControlOverlay(deviceName:deviceName,controls:supportedControls,values:values,
+                GestureControlOverlay(deviceName:deviceName,layoutTitle:layoutTitle,groups:layoutGroups,
+                    layoutNotice:layoutNotice,controls:supportedControls,values:values,
                     hand:hand,deviceStatus:deviceStatus,onBack:{ mode = .camera },
                     onClose:{ dismiss() },onTouch:{ mode = .touch })
             } else if mode == .touch {
@@ -129,6 +149,17 @@ struct ARScreen<Controls: View>: View {
             }
         }
     }
+    @MainActor private func saveEnrollment(_ rect: CGRect) async {
+        drawingMessage = "Saving the selected view…"
+        if await tracker.select(rect) {
+            pendingBox=nil;selecting=false
+            drawingMessage="View saved. Use Add view for another angle."
+            syncMode()
+        } else {
+            drawingMessage="View not saved. Retry or redraw below."
+        }
+    }
+
     private func syncMode() {
         let paused=mode != .camera || selecting || !permission || !tracker.ready || tracker.views == 0
         tracker.pause(paused)

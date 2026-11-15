@@ -5,8 +5,8 @@ Contributor guide • 14 November 2026
 GhostUI turns a supported physical device into an interactive camera interface.
 The user looks at a registered object, sees a highlight, opens its controls, and
 changes real settings through touch or hand gestures. The project already has a
-working Marshall Acton III demonstration. The next objective is to reuse that
-pipeline for an ESP32 and NeoPixel ring, then make device setup a guided process.
+working Marshall Acton III demonstration. The generated WLED brightness adapter has passed a local HTTP fixture test. The next
+objective is to verify it with an ESP32 and NeoPixel ring. See the README for generation and launch commands.
 
 This guide explains the current implementation, the intended user experience,
 and the engineering work required to connect them. **Firmware provisioning,
@@ -23,7 +23,7 @@ not implemented.**
 | Highlight | Detector mask outline with a bounding-box fallback | Between detections, contour movement is approximated from the tracked box |
 | AR startup | Opening AR loads saved views and starts detection automatically | Missing enrollment requires the user to save a view first |
 | Interaction | Pinch to select the highlighted device, then operate three centered vertical gesture sliders | Touch controls remain available; gesture HUD shows at most three controls |
-| Interface generation | Gemini generates a browser layout validated against adapter capabilities | Native iPhone controls currently render capabilities directly |
+| Interface generation | Gemini generates a browser layout validated against adapter capabilities | Native AR now renders validated Gemini title, labels, groups and order with shared native sliders |
 | Extensibility | Integration catalog, adapter contract, onboarding summary and read-only connection verification exist | One active device per server, selected at Mac startup |
 | Light example | Demo light exercises the shared pipeline in simulation | It does not control the ESP32 or NeoPixel ring |
 | Hardware available | ESP32 and NeoPixel ring | Board model, ring type/count, power and wiring still need confirmation |
@@ -35,7 +35,7 @@ for every reconnection, camera condition or hardware configuration.
 ## Understand the three identities
 
 **Integration identity** identifies the protocol implementation, such as
-`marshall`, a future `wled`, or a future GhostUI firmware protocol. One integration
+`marshall`, `wled`, or a future GhostUI firmware protocol. One integration
 can support many compatible physical units.
 
 **Device instance identity** identifies one physical unit, together with its
@@ -69,7 +69,7 @@ folder for diagnostics; production app changes belong in `ghostui_backend` and
    Both devices must share the trusted local network. The token changes on restart.
 5. Test a touch control to confirm that the intended speaker changes.
 6. Open AR. Saved views start recognition automatically. For new enrollment, draw
-   a box, save the view, and use Add view for more angles, up to four.
+   a box and lift your finger to save the view, and use Add view for more angles, up to four.
 7. Point the finger cursor inside the speaker highlight, pinch briefly and release
    to open the HUD. Pinch a slider thumb, drag up to increase or down to decrease,
    and release to apply. The value previews locally before release.
@@ -222,7 +222,7 @@ A marker or manual selection remains a reasonable fallback if appearance is weak
 The integration returns verified capabilities. The existing validation layer
 rejects unknown controls and values outside permitted ranges. Gemini may propose
 a layout; validate it and fall back to a deterministic template when needed.
-Native iPhone support for generated layouts still needs implementation if required.
+Native AR now consumes the validated layout and caches successful generation on the Mac for offline reuse. Generation runs automatically on connection when the Mac has internet access.
 
 During normal use, opening AR starts detection using saved enrollment. A highlight
 indicates a selectable match. Pinch selection opens the device's controls. Pinch a

@@ -55,8 +55,10 @@ nonisolated enum GestureHUDLayout {
     static func targets(controlIDs: [String]) -> [GestureTarget] {
         var targets=[GestureTarget(id:"back",rect:CGRect(x:0.03,y:0.025,width:0.28,height:0.08)),
                      GestureTarget(id:"close",rect:CGRect(x:0.72,y:0.025,width:0.25,height:0.08))]
+        let count = min(3, controlIDs.count)
+        let startX = 0.5 - (0.22 * Double(count) + 0.04 * Double(max(0,count-1))) / 2
         for (i,id) in controlIDs.prefix(3).enumerated() {
-            targets.append(GestureTarget(id:"control:"+id,rect:CGRect(x:0.13+Double(i)*0.26,y:0.24,width:0.22,height:0.52)))
+            targets.append(GestureTarget(id:"control:"+id,rect:CGRect(x:startX+Double(i)*0.26,y:0.24,width:0.22,height:0.52)))
         }
         return targets
     }

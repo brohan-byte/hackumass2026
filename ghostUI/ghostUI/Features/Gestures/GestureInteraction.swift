@@ -25,6 +25,13 @@ nonisolated struct GestureInteraction {
     mutating func reset() {
         target=nil;started=nil;delta=0;releaseFrames=0;releaseStarted=nil;needsOpenHand=true
     }
+    mutating func finishPendingRelease(time: TimeInterval) -> GestureRelease? {
+        guard let started,let releaseStarted,let target,
+              target.hasPrefix("control:"),time-releaseStarted>=0.12 else { return nil }
+        let result = time-started>=0.25 ? GestureRelease(target:target,delta:delta) : nil
+        reset()
+        return result
+    }
     mutating func update(point: CGPoint?, pinched: Bool, time: TimeInterval,
                          targets: [GestureTarget]) -> GestureRelease? {
         guard let point, point.x.isFinite, point.y.isFinite else { reset();return nil }
@@ -47,7 +54,7 @@ nonisolated struct GestureInteraction {
         releaseFrames += 1
         guard releaseFrames>=2 else { return nil }
         // Brief pinch-ratio flicker must not drop a captured slider mid-drag.
-        if target?.hasPrefix("control:") == true, time-(releaseStarted ?? time)<0.18 { return nil }
+        if target?.hasPrefix("control:") == true { return finishPendingRelease(time:time) }
         let result: GestureRelease? = time-started>=0.25 ? target.map { GestureRelease(target:$0,delta:delta) } : nil
         reset()
         return result

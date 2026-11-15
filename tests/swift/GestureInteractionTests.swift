@@ -79,6 +79,17 @@ import CoreGraphics
         _=drag.update(point:inside,pinched:false,time:21,targets:[])
         assert(drag.update(point:inside,pinched:false,time:21.1,targets:[]) == nil)
         assert(drag.update(point:inside,pinched:false,time:21.2,targets:[])?.target == "control:brightness")
+        // One observed open-hand release can finish even if fingertips vanish
+        // on the following frame. Hand loss without any release never commits.
+        _=drag.update(point:inside,pinched:false,time:22,targets:[rail])
+        _=drag.update(point:inside,pinched:true,time:22.1,targets:[rail])
+        _=drag.update(point:CGPoint(x:0.4,y:0.6),pinched:true,time:22.5,targets:[])
+        assert(drag.finishPendingRelease(time:22.6) == nil)
+        _=drag.update(point:inside,pinched:false,time:22.7,targets:[])
+        let release=drag.finishPendingRelease(time:22.85)
+        assert(release?.target == "control:brightness")
+        assert(abs((release?.delta ?? 0)+0.2)<0.001)
+        assert(drag.finishPendingRelease(time:23) == nil)
         print("PASS: gesture arming, debounce, cancellation, timeout, captured target and vertical slider ranges")
     }
 }

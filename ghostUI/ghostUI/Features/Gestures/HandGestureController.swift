@@ -30,6 +30,7 @@ import UIKit
     private var mode: Mode = .off
     private var controlIDs: [String] = []
     private var commandBusy = false
+    private var awaitingConfirmation = false
     private var working = false
     private var generation = UUID()
     private var lastFrame: TimeInterval = 0
@@ -41,6 +42,7 @@ import UIKit
 
     var isHUD: Bool { mode == .hud }
     func setMode(_ value: Mode, controls: [String] = []) {
+        awaitingConfirmation=false
         mode=value;controlIDs=Array(controls.prefix(3));generation=UUID();machine.reset()
         previewValue=nil;dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false;hoveredTarget=nil
         if value == .hud { selectedControlID=controlIDs.first }
@@ -49,12 +51,38 @@ import UIKit
         message=value == .hud ? "Pinch anywhere on a slider rail, drag up or down, then release to apply." : "Point index at highlighted object. Pinch and release to open controls."
     }
     func cancelGesture() {
+        awaitingConfirmation=false
         generation=UUID();machine.reset();previewValue=nil;dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false
         message="Gesture cancelled. Open your hand before starting again."
     }
     func setCommandBusy(_ value: Bool) {
         commandBusy=value
-        if value { generation=UUID();machine.reset();previewValue=nil;dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false }
+        if value {
+            generation=UUID();machine.reset();dragStart=nil;filteredCursor=nil;previewDelta=0;pinchActive=false
+            if !awaitingConfirmation { previewValue=nil }
+        } else if awaitingConfirmation {
+            awaitingConfirmation=false;previewValue=nil
+        }
+    }
+    private func applyRelease(_ event: GestureRelease) {
+        switch event.target {
+        case "device": onSelectDevice?()
+        case "back": onBack?()
+        case "close": onClose?()
+        default:
+            if event.target.hasPrefix("object:") {
+                onSelectObject?(String(event.target.dropFirst(7)))
+            } else if event.target.hasPrefix("control:"),let start=dragStart,
+                      let control=sliderControls.first(where:{"control:"+$0.id==event.target}) {
+                let value=GestureHUDLayout.draggedValue(start:start,delta:event.delta,min:control.min,max:control.max)
+                if value != start {
+                    selectedControlID=control.id;previewValue=value;awaitingConfirmation=true
+                    message="Sending slider value…";onCommit?(control.id,Int(value))
+                }
+            }
+        }
+        dragStart=nil
+        if !awaitingConfirmation { previewValue=nil }
     }
     func setDeviceBox(_ box: CGRect?) {
         if let box { deviceBox=box;deviceBoxSeen=Date() }
@@ -85,6 +113,9 @@ import UIKit
                 self.working=false
                 guard self.mode != .off,self.generation==id else { return }
                 guard let pose else {
+                    if !self.commandBusy,let release=self.machine.finishPendingRelease(time:time) {
+                        self.applyRelease(release);return
+                    }
                     if self.machine.started != nil,time-self.lastUsableFrame<0.35 {
                         self.message="Keep pinching; recovering hand tracking…";return
                     }
@@ -97,6 +128,9 @@ import UIKit
                 let point=CGPoint(x:old.x+0.55*(pose.cursor.x-old.x),y:old.y+0.55*(pose.cursor.y-old.y))
                 self.filteredCursor=point;self.cursor=point
                 guard pose.usable,!self.commandBusy else {
+                    if !self.commandBusy,let release=self.machine.finishPendingRelease(time:time) {
+                        self.applyRelease(release);return
+                    }
                     if !self.commandBusy,self.machine.started != nil,time-self.lastUsableFrame<0.35 {
                         self.message="Keep pinching; recovering fingertips…";return
                     }
@@ -106,7 +140,7 @@ import UIKit
                 self.lastUsableFrame=time
                 let targets=self.targets()
                 self.hoveredTarget=targets.first(where:{$0.rect.contains(point)})?.id
-                let pinched=pose.ratio < (self.machine.started == nil ? 0.36 : 0.65)
+                let pinched=pose.ratio < (self.machine.started == nil ? 0.36 : 0.50)
                 let previousStart=self.machine.started
                 let event=self.machine.update(point:point,pinched:pinched,time:time,targets:targets)
                 self.pinchActive=self.machine.started.map { time-$0>=0.25 } ?? false
@@ -120,23 +154,9 @@ import UIKit
                     self.previewValue=GestureHUDLayout.draggedValue(start:start,delta:self.machine.delta,min:c.min,max:c.max)
                 }
 
-                if self.machine.started == nil && event == nil { self.previewValue=nil;self.dragStart=nil }
+                if self.machine.started == nil && event == nil && !self.awaitingConfirmation { self.previewValue=nil;self.dragStart=nil }
                 if let event {
-                    switch event.target {
-                    case "device": self.onSelectDevice?()
-                    case "back": self.onBack?()
-                    case "close": self.onClose?()
-                    default:
-                        if event.target.hasPrefix("object:") {
-                            self.onSelectObject?(String(event.target.dropFirst(7)))
-                        } else if event.target.hasPrefix("control:"),let value=self.previewValue {
-                            let controlID=String(event.target.dropFirst(8))
-                            if value != self.dragStart {
-                                self.message="Sending slider value…";self.onCommit?(controlID,Int(value))
-                            }
-                        }
-                        self.previewValue=nil;self.dragStart=nil
-                    }
+                    self.applyRelease(event)
                 } else if self.machine.target?.hasPrefix("control:") == true {
                     self.message="Drag up / down. Release to apply; hide hand to cancel."
 

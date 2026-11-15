@@ -125,4 +125,20 @@ class ArchitectureTests(unittest.TestCase):
             self.assertEqual(self.call('/mobile/onboarding/verify', {'value': 5}, h)[1], 400)
             request.assert_not_called()
 
+    def test_mobile_ar_layout_auth_input_and_generation(self):
+        h = {'Authorization': 'Bearer phone-test-token'}
+        self.assertEqual(self.call('/mobile/layout')[1], 401)
+        self.assertEqual(self.call('/mobile/layout', {})[1], 401)
+        with patch('ghostui_backend.ar_layout.ARLayoutService.resolve') as resolve:
+            for body in ({'refresh': 1}, {'capabilities': {}}, []):
+                self.assertEqual(self.call('/mobile/layout', body, h)[1], 400)
+            resolve.assert_not_called()
+            resolve.return_value = {'layout': template(self.worker.capabilities),
+                                    'source': 'ai', 'notice': 'Gemini', 'cached': False}
+            result, code = self.call('/mobile/layout', {'refresh': True}, h)
+            self.assertEqual((code, result['source']), (200, 'ai'))
+            resolve.assert_called_once_with(True)
+        with patch('ghostui_backend.ar_layout.ARLayoutService.current', return_value={'source': 'ai'}):
+            self.assertEqual(self.call('/mobile/layout', headers=h), ({'source': 'ai'}, 200))
+
 if __name__=='__main__':unittest.main()

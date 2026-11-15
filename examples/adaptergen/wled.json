@@ -1,0 +1,15 @@
+{
+  "family": "wled",
+  "info_path": "/json/info",
+  "identity_field": "mac",
+  "name_field": "name",
+  "match_field": "brand",
+  "match_value": "WLED",
+  "state_path": "/json/state",
+  "command_path": "/json/state",
+  "control_id": "brightness",
+  "label": "Brightness",
+  "value_field": "bri",
+  "wire_max": 255,
+  "power_field": "on"
+}

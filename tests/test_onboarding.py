@@ -14,7 +14,7 @@ class OnboardingTests(unittest.TestCase):
 
     def test_catalog_only_lists_implemented_integrations(self):
         catalog = {item['id']: item for item in integration_catalog()}
-        self.assertEqual(set(catalog), {'marshall', 'demo-light'})
+        self.assertEqual(set(catalog), {'marshall', 'demo-light', 'wled'})
         self.assertTrue(catalog['demo-light']['simulationOnly'])
         self.assertEqual(catalog['marshall']['transport'], 'ble')
 

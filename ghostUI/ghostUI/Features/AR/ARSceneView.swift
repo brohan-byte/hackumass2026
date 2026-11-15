@@ -7,6 +7,9 @@ import UIKit
 
 struct ARScreen<Controls: View>: View {
     let deviceName: String
+    let layoutTitle: String
+    let layoutGroups: [String:String]
+    let layoutNotice: String
     let recognition: RecognitionClient
     let gestureControls: [DeviceControl]
     let values: [String:Double]
@@ -109,7 +112,8 @@ struct ARScreen<Controls: View>: View {
         .onDisappear { hand.setMode(.off);tracker.pause(true) }
         .overlay {
             if mode == .hud {
-                GestureControlOverlay(deviceName:deviceName,controls:supportedControls,values:values,
+                GestureControlOverlay(deviceName:deviceName,layoutTitle:layoutTitle,groups:layoutGroups,
+                    layoutNotice:layoutNotice,controls:supportedControls,values:values,
                     hand:hand,deviceStatus:deviceStatus,onBack:{ mode = .camera },
                     onClose:{ dismiss() },onTouch:{ mode = .touch })
             } else if mode == .touch {

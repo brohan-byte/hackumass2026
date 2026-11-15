@@ -9,6 +9,10 @@ struct ContentView: View {
     @State private var status = "Enter the server and pairing token printed by app.py --lan."
     @State private var busy = false
     @State private var showingAR = false
+    @State private var generatingLayout = false
+    @State private var arLayout: ControlLayout?
+    @State private var layoutNotice = "Default AR controls"
+    @State private var layoutSource = "template"
 
     var body: some View {
         NavigationStack {
@@ -31,7 +35,12 @@ struct ContentView: View {
                     deviceControls(caps)
                     #if os(iOS)
                     Section {
-                        Button("Open camera · Select object") { showingAR = true }.disabled(busy)
+                        if generatingLayout { ProgressView("Preparing AR controls…") }
+                        Text(layoutNotice).font(.caption)
+                        Button("Regenerate AR interface") { Task { await prepareAR(caps, refresh:true, open:false) } }
+                            .disabled(busy)
+                        Button("Open camera · Select object") { Task { await prepareAR(caps, refresh:false, open:true) } }
+                            .disabled(busy)
                     }
                     #endif
                 }
@@ -42,8 +51,11 @@ struct ContentView: View {
             #if os(iOS)
             .fullScreenCover(isPresented: $showingAR) {
                 if let caps = capabilities {
-                    ARScreen(deviceName:caps.name,recognition:RecognitionClient(server:server,token:token),
-                             gestureControls:caps.controls,values:values,commandBusy:busy,
+                    let layout = arLayout ?? ControlLayout.fallback(caps)
+                    ARScreen(deviceName:caps.name,layoutTitle:layout.title,
+                             layoutGroups:Dictionary(uniqueKeysWithValues:layout.controls.map { ($0.bind,$0.group) }),
+                             layoutNotice:layoutNotice,recognition:RecognitionClient(server:server,token:token),
+                             gestureControls:(try? layout.resolvedControls(caps)) ?? caps.controls,values:values,commandBusy:busy,
                              onGestureChange:{ id,value in Task { await applyGestureChange(id,value:value,caps:caps) } },
                              deviceStatus:status) {
                         Form {
@@ -76,6 +88,36 @@ struct ContentView: View {
                     }
     }
 
+    @MainActor private func prepareAR(_ caps: DeviceCapabilities, refresh: Bool, open: Bool) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        if refresh || arLayout == nil {
+            await loadARLayout(caps, refresh:refresh)
+        }
+        if open { showingAR = true }
+    }
+
+    @MainActor private func loadARLayout(_ caps: DeviceCapabilities, refresh: Bool) async {
+        generatingLayout = true
+        layoutNotice = "Preparing AR interface…"
+        defer { generatingLayout = false }
+        do {
+            let result: ControlLayoutResponse = try await request("/mobile/layout",body:["refresh":refresh])
+            try result.validate(for:caps)
+            arLayout = result.layout
+            layoutSource = result.source
+            layoutNotice = (result.source == "ai" ? "Gemini · " : "Default · ") + result.notice
+        } catch {
+            if layoutSource == "ai", arLayout != nil {
+                layoutNotice = "Gemini · Keeping the current layout. " + error.localizedDescription
+            } else {
+                arLayout = ControlLayout.fallback(caps)
+                layoutNotice = "Default · " + error.localizedDescription
+            }
+        }
+    }
+
     private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
         try await GhostAPIClient(server:server,token:token).request(path,body:body)
     }
@@ -93,7 +135,8 @@ struct ContentView: View {
     }
 
     @MainActor private func connect() async {
-        busy = true; capabilities = nil; onboarding = nil; status = "Connecting…"
+        busy = true; capabilities = nil; onboarding = nil; arLayout = nil
+        layoutSource = "template"; layoutNotice = "Default AR controls"; status = "Connecting…"
         defer { busy = false }
         do {
             let client = OnboardingClient(api:GhostAPIClient(server:server,token:token))
@@ -101,7 +144,9 @@ struct ContentView: View {
             let caps: DeviceCapabilities = try await request("/mobile/capabilities")
             let verified = try await client.verifyConnection()
             values = verified.state; capabilities = caps; onboarding = summary
-            status = "Connected to \(caps.name). State confirmed. Test a control to confirm the physical device."
+            status = "Connected to \(caps.name). Preparing AR controls…"
+            await loadARLayout(caps, refresh:false)
+            status = "Connected to \(caps.name). Test a control, then open AR to register or recognize the object."
         } catch { status = error.localizedDescription }
     }
     @MainActor private func refresh() async {

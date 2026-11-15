@@ -50,6 +50,8 @@ import CoreGraphics
         assert(GestureHUDLayout.draggedValue(start:5,delta:0,min:0,max:10)==5)
         assert(GestureHUDLayout.draggedValue(start:5,delta:.nan,min:0,max:10)==5)
         assert(GestureHUDLayout.fraction(value:200,min:0,max:100)==1)
+        let single = GestureHUDLayout.targets(controlIDs:["brightness"]).first(where:{$0.id=="control:brightness"})!
+        assert(abs(single.rect.midX-0.5) < 0.001)
         let sliders=hud.filter { $0.id.hasPrefix("control:") }
         assert(Set(sliders.map { $0.rect.midY }).count == 1)
         for slider in sliders {

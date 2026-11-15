@@ -28,6 +28,37 @@ implementation preserves the prior prototype's connection and read/write logic.
   for a trusted local demo, not internet deployment.
 - Open `ghostUI/ghostUI.xcodeproj` in Xcode and rebuild for iPhone changes.
 
+## Generate a Wi-Fi adapter
+
+From the project root, give the generator plain-text API notes. It sends the notes
+and the supported GhostUI adapter contract to Gemini using the existing server
+key. It validates the returned mapping and emits a Python adapter using the HTTP
+transport in `ghostui_backend/integrations/http_level.py`. Generation runs on
+the Mac and writes a new file. Inspect its endpoints, identity check, fields
+and numeric range before adding a new family to the integration catalog.
+
+```sh
+.venv-vision/bin/python -m ghostui_backend.adaptergen --docs examples/adaptergen/wled-api.md --output /tmp/wled_candidate.py
+diff -u ghostui_backend/integrations/wled.py /tmp/wled_candidate.py
+```
+
+To reproduce the bundled WLED adapter offline, use
+`--binding examples/adaptergen/wled.json` in place of the `--docs` argument.
+Use a fresh output filename each time. The generator covers one integer 0–100
+control on an unauthenticated HTTP(S) JSON device, flat identity and state objects,
+a JSON POST, and linear scaling with optional on/off state. Other protocols
+and control types need additional runtime support.
+
+Once the ring is reachable, substitute its address and run:
+
+```sh
+.venv-vision/bin/python app.py --device wled 192.168.1.42 --lan
+```
+
+Connect the iPhone with the printed URL and token. Set brightness to 40% and
+check that the ring responds and the app confirms 40. Zero turns the ring off.
+The generated adapter identifies the controller by its reported MAC address.
+
 ## No-hardware checks
 
 ```sh
@@ -49,8 +80,14 @@ availability and quota in Google AI Studio. No extra AI SDK is required.
 Only capability metadata and the style preference are sent for generation.
 The model selects title, order, labels and groups. Adapter capabilities retain
 control IDs and valid ranges. Invalid layouts or unavailable API access produce
-a visibly labeled template fallback. The iPhone currently renders capabilities
-directly; the generated layout applies to the browser.
+a visibly labeled template fallback. The iPhone automatically requests a Gemini AR layout after connecting to a device and renders the
+validated title, labels, groups and order with native vertical sliders. Use
+Regenerate AR interface on the phone to explicitly regenerate. Successful layouts
+are cached per device and capability schema on the Mac in data/ar-layouts, allowing
+reuse without internet. The Mac needs internet for a new Gemini call; WLED-AP alone
+provides local control only. Offline generation uses clearly labelled default controls.
+Slider ranges and bindings always come from the adapter. The gesture HUD currently
+shows up to three controls. Restart the backend and rebuild the iPhone app for this update.
 
 ## Organization
 

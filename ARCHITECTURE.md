@@ -47,8 +47,9 @@ Root `.env`, `data/vision`, model paths and launch commands stay in place.
 
 An integration describes a supported device family/protocol; a device instance
 is one physical unit with a connection identity. `integrations/catalog.py` lists
-only working implementations. WLED, Matter and ESP32 provisioning are future
-integrations, not selectable placeholders.
+only working implementations. WLED brightness is generated from a reviewed JSON API binding and tested against a
+local HTTP fixture. Use the README generator instructions to repeat this with Gemini.
+Matter and ESP32 provisioning remain future work.
 
 Each implementation satisfies `DeviceAdapter`: capabilities, discover, request,
 and close. Discovery and authentication belong inside the integration. The
@@ -89,8 +90,19 @@ instance ID. Do not treat a matching appearance as authentication.
 
 ## Interaction and generation
 
-The backend generates and validates browser layouts against capabilities. The
-native phone currently renders capability-driven controls, not Gemini layouts.
+The backend generates and validates layouts against capabilities. GET /mobile/layout
+returns the cached AR layout or default controls. POST /mobile/layout with optional
+boolean refresh generates when needed; both routes require paired-phone auth.
+ARLayoutService persists successful Gemini layouts under data/ar-layouts using
+a device and capability schema hash. Failed regeneration preserves a saved AI
+layout, and invalid or missing cache entries fall back to explicit defaults.
+The phone automatically prepares the layout after connection verification and supports
+explicit regeneration. Responses carry deviceId, which the phone checks against
+its connected capabilities before displaying a layout. Visual enrollment is scoped
+to the same deviceId by RecognitionService, binding the detected object to its controls.
+ControlLayout validates bindings, widget types and labels, then preserves trusted
+ranges while resolving the generated order. The overlay renders the title, labels
+and groups. The resulting ordered controls drive both gesture targets and drawing.
 Hand tracking runs locally with Apple Vision, up to 20 Hz with cursor smoothing.
 Three centered vertical sliders share rendering and hit-target geometry. Pinch
 captures a thumb; drag previews a bounded value; release sends one absolute
@@ -100,8 +112,8 @@ hand inference stays on the phone and images are not sent to Gemini.
 
 ## Extension sequence
 
-1. Add a real WLED integration with explicit endpoint configuration and validated
-   capabilities; reuse the existing onboarding/control/recognition flow.
+1. Verify the generated WLED brightness adapter against the physical ring using
+   its local address and the existing onboarding/control/recognition flow.
 2. Add persistent device instances, per-instance routes and a phone integration
    picker. Bind visual references to instance IDs, not adapter families.
 3. Add ESP32 provisioning as a separate module: known hardware recipe, firmware

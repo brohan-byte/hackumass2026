@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .marshall import MarshallAdapter
 from .wled import GeneratedAdapter as WledAdapter
 from .demo_light import DemoLightAdapter
+from .homeassistant import HomeAssistantAdapter
 
 @dataclass(frozen=True)
 class Integration:
@@ -28,6 +29,9 @@ INTEGRATIONS = {
         "Scan and verify the Acton III model and supported BLE characteristics, or supply its address.", MarshallAdapter),
     "demo-light": Integration("demo-light", "Demo light (simulation)", "simulation",
         "No hardware required. Exercises the same capabilities and command pipeline.", DemoLightAdapter, True),
+    "homeassistant": Integration("homeassistant", "Home Assistant entity", "http",
+        "Set HOMEASSISTANT_URL and HOMEASSISTANT_TOKEN in .env, then pass an entity ID such as light.ceiling_lights.",
+        HomeAssistantAdapter),
 }
 
 def integration_catalog():

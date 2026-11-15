@@ -69,7 +69,7 @@ folder for diagnostics; production app changes belong in `ghostui_backend` and
    Both devices must share the trusted local network. The token changes on restart.
 5. Test a touch control to confirm that the intended speaker changes.
 6. Open AR. Saved views start recognition automatically. For new enrollment, draw
-   a box, save the view, and use Add view for more angles, up to four.
+   a box and lift your finger to save the view, and use Add view for more angles, up to four.
 7. Point the finger cursor inside the speaker highlight, pinch briefly and release
    to open the HUD. Pinch a slider thumb, drag up to increase or down to decrease,
    and release to apply. The value previews locally before release.
@@ -222,7 +222,7 @@ A marker or manual selection remains a reasonable fallback if appearance is weak
 The integration returns verified capabilities. The existing validation layer
 rejects unknown controls and values outside permitted ranges. Gemini may propose
 a layout; validate it and fall back to a deterministic template when needed.
-Native AR now consumes the validated layout and caches successful generation on the Mac for offline reuse. Generate AR interface explicitly refreshes it when the Mac has internet access.
+Native AR now consumes the validated layout and caches successful generation on the Mac for offline reuse. Generation runs automatically on connection when the Mac has internet access.
 
 During normal use, opening AR starts detection using saved enrollment. A highlight
 indicates a selectable match. Pinch selection opens the device's controls. Pinch a

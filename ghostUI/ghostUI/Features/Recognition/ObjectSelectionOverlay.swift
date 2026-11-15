@@ -7,6 +7,7 @@ struct ObjectSelectionOverlay: View {
     var contour: [CGPoint] = []
     let selecting: Bool
     let deviceName: String
+    var onBeginRegistration: () -> Void = {}
     let onRegister: (CGRect) -> Void
     let onSelect: () -> Void
     var onInvalid: () -> Void = {}
@@ -15,7 +16,7 @@ struct ObjectSelectionOverlay: View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 if selecting {
-                    SelectionDrawingView(onComplete: onRegister, onInvalid: onInvalid)
+                    SelectionDrawingView(onBegin:onBeginRegistration,onComplete: onRegister, onInvalid: onInvalid)
                     if let box {
                         outline(screenRect(box, geometry.size), color: .yellow).allowsHitTesting(false)
                     }
@@ -60,17 +61,19 @@ struct ObjectSelectionOverlay: View {
 
 /// Native gesture surface, independent of the AR renderer's gesture handling.
 struct SelectionDrawingView: UIViewRepresentable {
+    let onBegin: () -> Void
     let onComplete: (CGRect) -> Void
     let onInvalid: () -> Void
     func makeUIView(context: Context) -> DrawingCanvas {
-        let view = DrawingCanvas(); view.onComplete = onComplete; view.onInvalid = onInvalid
+        let view = DrawingCanvas(); view.onBegin = onBegin; view.onComplete = onComplete; view.onInvalid = onInvalid
         return view
     }
     func updateUIView(_ view: DrawingCanvas, context: Context) {
-        view.onComplete = onComplete; view.onInvalid = onInvalid
+        view.onBegin = onBegin; view.onComplete = onComplete; view.onInvalid = onInvalid
     }
 }
 final class DrawingCanvas: UIView {
+    var onBegin: (() -> Void)?
     var onComplete: ((CGRect) -> Void)?
     var onInvalid: (() -> Void)?
     private var start: CGPoint?
@@ -90,6 +93,7 @@ final class DrawingCanvas: UIView {
     @objc private func drag(_ gesture: UIPanGestureRecognizer) {
         let location = gesture.location(in:self)
         if gesture.state == .began {
+            onBegin?()
             let delta = gesture.translation(in:self)
             start = CGPoint(x:location.x-delta.x,y:location.y-delta.y)
         }

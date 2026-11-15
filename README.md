@@ -81,8 +81,7 @@ Only capability metadata and the style preference are sent for generation.
 The model selects title, order, labels and groups. Adapter capabilities retain
 control IDs and valid ranges. Invalid layouts or unavailable API access produce
 a visibly labeled template fallback. The iPhone automatically requests a Gemini AR layout after connecting to a device and renders the
-validated title, labels, groups and order with native vertical sliders. Use
-Regenerate AR interface on the phone to explicitly regenerate. Successful layouts
+validated title, labels, groups and order with native vertical sliders. Generation runs automatically after connection. Successful layouts
 are cached per device and capability schema on the Mac in data/ar-layouts, allowing
 reuse without internet. The Mac needs internet for a new Gemini call; WLED-AP alone
 provides local control only. Offline generation uses clearly labelled default controls.
@@ -136,11 +135,12 @@ Weights are in `models/yoloe-26s-seg.pt`; a prepared installation can start with
 Rebuild the existing Xcode project on your iPhone, connect using the printed
 address/token, then choose **Open camera · Select object**.
 
-1. Drag a tight box around the front of the speaker, below the instruction panel.
-   A yellow preview remains. Tap **Save view** to submit it; drawing alone does not enroll.
-2. Wait for “Saved view 1/4.” Move to the left side and draw another box.
+1. Drag a tight box around the object below the instruction panel. The image freezes
+   when drawing begins, and lifting your finger submits the view automatically.
+2. Wait for “Saved view 1/4.” Use **Add view** and draw from another angle.
+   If saving fails, the error stays visible with **Retry saving** and **Redraw** actions.
 3. Add right-side and different-distance views, up to four total.
-4. Detection starts automatically after saving a view. The initial model warm-up can take tens of seconds;
+4. Detection starts automatically after drawing a valid box. The initial model warm-up can take tens of seconds;
    later calls reuse the model and visual prompts.
 5. Hold reasonably steady during detection. A matching box becomes highlighted;
    tap it to open controls. iPhone Vision tracks between periodic Mac detections.
@@ -200,7 +200,7 @@ bounding-box tracker; this approximates the silhouette between model results.
 Rebuild and run the iPhone app, keeping the paired Mac backend running:
 
 1. Open AR. Detection starts automatically when saved speaker views and the detector are available.
-   For a new device, save an enrollment view; detection starts automatically. Use Add view for additional angles.
+   For a new device, draw a box to save an enrollment view; detection starts automatically. Use Add view for additional angles.
 2. Show one hand to the rear camera. The index fingertip controls the cursor.
 3. Point the cursor inside the highlighted speaker, pinch thumb/index for at
    least 0.25 seconds, then release to open the gesture HUD.

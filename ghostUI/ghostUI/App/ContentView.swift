@@ -37,9 +37,7 @@ struct ContentView: View {
                     Section {
                         if generatingLayout { ProgressView("Preparing AR controls…") }
                         Text(layoutNotice).font(.caption)
-                        Button("Regenerate AR interface") { Task { await prepareAR(caps, refresh:true, open:false) } }
-                            .disabled(busy)
-                        Button("Open camera · Select object") { Task { await prepareAR(caps, refresh:false, open:true) } }
+                        Button("Open camera · Select object") { Task { await prepareAR(caps) } }
                             .disabled(busy)
                     }
                     #endif
@@ -88,14 +86,14 @@ struct ContentView: View {
                     }
     }
 
-    @MainActor private func prepareAR(_ caps: DeviceCapabilities, refresh: Bool, open: Bool) async {
+    @MainActor private func prepareAR(_ caps: DeviceCapabilities) async {
         guard !busy else { return }
         busy = true
         defer { busy = false }
-        if refresh || arLayout == nil {
-            await loadARLayout(caps, refresh:refresh)
+        if arLayout == nil {
+            await loadARLayout(caps, refresh:false)
         }
-        if open { showingAR = true }
+        showingAR = true
     }
 
     @MainActor private func loadARLayout(_ caps: DeviceCapabilities, refresh: Bool) async {

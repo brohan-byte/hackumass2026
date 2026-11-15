@@ -70,7 +70,7 @@ is read-only and explicitly does not claim physical identity confirmation.
 
 The iPhone connects to the Mac, loads the selected integration, verifies state,
 and offers controls for a user-confirmed physical test. Opening AR loads saved
-views and starts detection automatically; saving a new view resumes detection.
+views and starts detection automatically; drawing a valid box saves the captured view and resumes detection.
 Visual enrollment is stored separately from the connection adapter.
 
 This is the foundation for an Add device wizard. Selection currently occurs at
@@ -96,8 +96,7 @@ boolean refresh generates when needed; both routes require paired-phone auth.
 ARLayoutService persists successful Gemini layouts under data/ar-layouts using
 a device and capability schema hash. Failed regeneration preserves a saved AI
 layout, and invalid or missing cache entries fall back to explicit defaults.
-The phone automatically prepares the layout after connection verification and supports
-explicit regeneration. Responses carry deviceId, which the phone checks against
+The phone automatically prepares the layout after connection verification automatically. Responses carry deviceId, which the phone checks against
 its connected capabilities before displaying a layout. Visual enrollment is scoped
 to the same deviceId by RecognitionService, binding the detected object to its controls.
 ControlLayout validates bindings, widget types and labels, then preserves trusted

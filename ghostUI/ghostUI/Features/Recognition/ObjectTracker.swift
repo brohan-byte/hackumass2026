@@ -20,6 +20,7 @@ import UIKit
     private var display = CGAffineTransform.identity
     private var seed: CGRect?
     private var enrollmentJPEG: Data?
+    @Published private(set) var enrollmentPreview: UIImage?
     private var generation = UUID()
     private var trackingBusy = false
     private var detectionBusy = false
@@ -44,27 +45,49 @@ import UIKit
         catch { message = error.localizedDescription }
     }
     func stageEnrollmentImage() {
-        enrollmentJPEG = jpegSnapshot()
+        enrollmentJPEG = nil
+        enrollmentPreview = nil
+        guard let image = latestSnapshot?(), image.size.width > 0, image.size.height > 0 else {
+            message = "Camera frame unavailable. Wait for the live view, then draw again."
+            return
+        }
+        enrollmentJPEG = jpegSnapshot(image)
+        if enrollmentJPEG != nil { enrollmentPreview = image }
+        else { message = "Could not capture this view. Draw again." }
     }
-    func select(_ rect: CGRect) {
-        guard !enrolling, !detectionBusy, let client, let jpeg = enrollmentJPEG ?? jpegSnapshot() else {
-            message = "Wait for vision to finish and the camera to be ready."; return
+    func discardEnrollmentImage() {
+        enrollmentJPEG = nil
+        enrollmentPreview = nil
+    }
+    func select(_ rect: CGRect) async -> Bool {
+        guard !enrolling else { return false }
+        guard !detectionBusy else {
+            message = "Waiting for the previous detection. Retry saving shortly."
+            return false
+        }
+        guard let client else {
+            message = "Device connection unavailable. Close AR and reconnect."
+            return false
+        }
+        guard let jpeg = enrollmentJPEG else {
+            message = "No camera image captured. Draw a new box over the live view."
+            return false
         }
         enrolling = true; generation = UUID(); box = nil; seed = nil
+        defer { enrolling = false }
         message = "Saving boxed view on your Mac…"
-        print("GhostUI enrollment: sending JPEG (\(jpeg.count) bytes)")
-        Task {
-            defer { enrolling = false }
-            do {
-                let result = try await client.enroll(jpeg,box:rect)
-                views = result.views
-                enrollmentJPEG = nil
-                message = "Saved view \(views)/4. Detection resumes automatically. Use Add view for another angle."
-                lastDetect = .distantPast
-            } catch {
-                message = "Enrollment failed: " + error.localizedDescription
-                print("GhostUI enrollment failed: \(error.localizedDescription)")
-            }
+        print("GhostUI enrollment: sending JPEG (\(jpeg.count) bytes), box \(rect)")
+        do {
+            let result = try await client.enroll(jpeg,box:rect)
+            views = result.views
+            discardEnrollmentImage()
+            message = "Saved view \(views)/4. Detection resumes automatically. Use Add view for another angle."
+            lastDetect = .distantPast
+            return true
+        } catch {
+            message = "Enrollment failed: " + error.localizedDescription
+            print("GhostUI enrollment failed: \(error.localizedDescription)")
+            return false
         }
     }
     func reset(_ reason: String = "Finding enrolled object again…") {
@@ -76,7 +99,11 @@ import UIKit
         if paused { generation = UUID(); box = nil; seed = nil }
     }
     private func jpegSnapshot() -> Data? {
-        guard let image = latestSnapshot?(), image.size.width > 0 else { return nil }
+        guard let image = latestSnapshot?() else { return nil }
+        return jpegSnapshot(image)
+    }
+    private func jpegSnapshot(_ image: UIImage) -> Data? {
+        guard image.size.width > 0, image.size.height > 0 else { return nil }
         let scale = min(1, 960/max(image.size.width,image.size.height))
         let size = CGSize(width:image.size.width*scale,height:image.size.height*scale)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1

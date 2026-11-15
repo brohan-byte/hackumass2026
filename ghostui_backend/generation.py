@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 
 def load_environment():
-    """Load only Gemini settings from the project .env, without executing it.
+    """Load only allowlisted settings (Gemini, Home Assistant) from the project .env, without executing it.
 
     Nonempty exported environment values take precedence over the file.
     """
@@ -21,7 +21,8 @@ def load_environment():
             line = line[7:].strip()
         name, sep, value = line.partition('=')
         name = name.strip()
-        if not sep or name not in ('GEMINI_API_KEY', 'GEMINI_MODEL'):
+        if not sep or name not in ('GEMINI_API_KEY', 'GEMINI_MODEL',
+                                   'HOMEASSISTANT_URL', 'HOMEASSISTANT_TOKEN'):
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
